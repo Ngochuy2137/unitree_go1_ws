@@ -108,9 +108,8 @@ roslaunch unitree_guide gazeboSim.launch
 
 - When run `rosrun unitree_guide junior_ctrl` , a node named `unitree_gazebo_servo` is generated and it will calculate and publish commands to the following topics, corresponding to each leg joint, which are subscribed by the robot in Gazebo or in reality:
     
-    <aside>
-    💡
-    
+
+    💡 Topics
     - ***Front Left leg:***
         - /go1_gazebo/FL_calf_controller/command [unitree_legged_msgs/MotorCmd]
         - /go1_gazebo/FL_hip_controller/command [unitree_legged_msgs/MotorCmd]
@@ -131,11 +130,7 @@ roslaunch unitree_guide gazeboSim.launch
     
 - The message type of these topics is unitree_legged_msgs/MotorCmd:
     
-    <aside>
-    💡
-    
-    ***unitree_legged_msgs/MotorCmd***
-    
+    💡 unitree_legged_msgs/MotorCmd
     - uint8 mode
     - float32 q
     - float32 dq
