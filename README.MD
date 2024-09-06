@@ -3,6 +3,17 @@
 
 **Objective:** Packages to simulate Unitree Go1 in Gazebo and control the robot with keyboard based on ROS
 
+## Table of Contents
+- [1. Prerequisite](#1-prerequisite)
+- [2. Installation](#2-installation)
+    - [Clone repo including necessary packages](#21-clone-repo-including-necessary-packages)
+    - [Install dependencies](#22-install-dependencies)
+    - [Build unitree_legged_sdk manually](#23-build-unitree_legged_sdk-manually)
+    - [Build workspace](#24-build-workspace)
+- [3. Simulation Running](#3-simulation-running)
+    - [Launch gazebo simulation](#31-launch-gazebo-simulation)
+    - [Control the robot with keyboard](#32-control-the-robot-with-keyboard)
+
 ## **1. Prerequisite**
 
 - Ubuntu 20.04 with ROS noetic or Ubuntu 18.04 with ROS melodic
