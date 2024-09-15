@@ -4,3 +4,6 @@
 [submodule "src/unitree_guide"]
 	path = src/unitree_guide
 	url = https://github.com/unitreerobotics/unitree_guide.git
+[submodule "src/slam_toolbox"]
+	path = src/slam_toolbox
+	url = https://github.com/SteveMacenski/slam_toolbox.git
