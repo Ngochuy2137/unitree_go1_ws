@@ -10,5 +10,3 @@
 	path = src/slam_toolbox
 	url = https://github.com/SteveMacenski/slam_toolbox.git
 	branch = noetic-devel
-[submodule "src/unitree_guideuide"]
-	branch = master
