@@ -1,9 +1,12 @@
 [submodule "src/unitree_ros"]
 	path = src/unitree_ros
 	url = https://github.com/Ngochuy2137/unitree_ros.git
+	branch = master
 [submodule "src/unitree_guide"]
 	path = src/unitree_guide
 	url = https://github.com/Ngochuy2137/unitree_guide.git
+	branch = master
 [submodule "src/slam_toolbox"]
 	path = src/slam_toolbox
 	url = https://github.com/SteveMacenski/slam_toolbox.git
+	branch = noetic-devel
