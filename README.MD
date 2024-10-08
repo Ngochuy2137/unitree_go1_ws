@@ -85,6 +85,33 @@ cd <your favorite directory>/unitree_go1_ws
 catkin build
 ```
 
+### 2.5 Appendix
+
+- Install protoc 3.6.1
+    - This is optional
+    - If catkin build gets some problems with gazebo, my recommendation is install protoc lib with version is 3.6.1
+    - You can check current protoc version by
+        
+        ```bash
+        protoc --version
+        ```
+        
+    - Remove old version of protoc and install protoc 3.6.1
+        
+        ```bash
+        sudo apt-get remove --purge libprotobuf-dev protobuf-compiler
+        sudo apt-get install libprotobuf-dev=3.6.1 protobuf-compiler=3.6.1
+        ```
+        
+    - In case you cannot find protoc 3.6.1 by APT, you can install it by source
+    - Install gazebo-ros
+    - The remove command above removed gazebo-ros package, we need to reinstall it after installing protoc 3.6.1
+        
+        ```bash
+        sudo apt install ros-noetoc-gazebo-ros
+        ```
+    - Then catkin build
+
 ## 3. Simulation Running
 Reference: [Link](https://github.com/unitreerobotics/unitree_guide/blob/main/README.md)
 ### Note:
@@ -92,7 +119,7 @@ Reference: [Link](https://github.com/unitreerobotics/unitree_guide/blob/main/REA
 Before running any following command in any terminal, you need to source your workspace before.
 
 ```bash
-source cd <unitree_go1_ws directory>/devel/setup.bash
+source <unitree_go1_ws directory>/devel/setup.bash
 ```
 
 ### 3.1 Launch gazebo simulation
