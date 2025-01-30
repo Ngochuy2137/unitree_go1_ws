@@ -31,6 +31,9 @@ mission_complete = False
 distance_threshold = 0.4  # Stopafstand (meters)
 yaw_threshold = math.radians(20)  #4 graden in radialen
 RATE = 20  # Tijdstap (seconden)
+ROBOT_TF_FRAME = "dog_frame"
+TARGET_TF_FRAME = 'pred_impact_point_frame' # 'pred_impact_point_frame' # "chip_star_frame"
+
 
 
 def shutdown_node():
@@ -59,7 +62,7 @@ def calculate_relative_position(source_frame, target_frame):
     """
     try:
         now = rospy.Time(0)
-        tf_listener.waitForTransform(source_frame, target_frame, now, rospy.Duration(1.0))
+        tf_listener.waitForTransform(source_frame, target_frame, now, rospy.Duration(1000.0))
         (trans, rot) = tf_listener.lookupTransform(source_frame, target_frame, now)
         # Relatieve positie
         dx = trans[0]
@@ -121,7 +124,7 @@ def process_movement():
     if mission_complete:
         return
     # Bereken de relatieve positie en yaw-afwijking
-    distance, desired_yaw = calculate_relative_position("dog_frame", "chip_star_frame")
+    distance, desired_yaw = calculate_relative_position(ROBOT_TF_FRAME, TARGET_TF_FRAME)
     if distance is None or desired_yaw is None:
         return
     # Controleer of het doel bereikt is
@@ -138,7 +141,7 @@ def process_movement():
         yaw_rate = max(min(desired_yaw, 0.5), -0.5)  # Limiteer yaw rate binnen [-0.5, 0.5]
     else:
         forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1)*6
-        yaw_rate = max(min(desired_yaw, 0.5), -0.5)
+        yaw_rate = max(min(desired_yaw, 0.5), -0.5)*2
     # Stuur de commando's naar de robot
     send_udp_message(forward_velocity, yaw_rate)
     publish_velocity(forward_velocity, yaw_rate)
