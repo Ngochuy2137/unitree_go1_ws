@@ -4,21 +4,30 @@ import math
 import tf
 import sys
 import time
+from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
 
 sys.path.append('/home/server-huynn/workspace/robot_catching_project/trajectory_prediction/go1-control-rocat/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64')
 import robot_interface as sdk
 from python_utils import printer
-
+import copy
+import tf.transformations as tf_trans
+import numpy as np
 
 HIGHLEVEL = 0xee
 RATE = 20  # Loop rate
 TRANS_THRES = 0.4  # Meters
 ROT_THRES = math.radians(20)  # 20 degrees in radians
-ROBOT_TF_FRAME = "dog_frame"
-TARGET_TF_FRAME = 'chip_star_frame' # 'chip_star_frame' 'pred_impact_point_frame'
+# ROBOT_TF_FRAME = "dog_frame"
+# TARGET_TF_FRAME = 'chip_star_frame' # 'chip_star_frame' 'pred_impact_point_frame'
+
+ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
+TARGET_POSE_TOPIC = "/mocap_pose_topic/chip_star_pose"
 LIN_VEL_SCALING = 1.0
 ROT_VEL_SCALING = 1.0
+MSG_TIMEOUT = 0.2
+MODIFY_Z_UP = True
+
 
 class RobotPIDController:
     def __init__(self, robot_ip="192.168.123.161"):
@@ -30,8 +39,72 @@ class RobotPIDController:
         self.udp = sdk.UDP(HIGHLEVEL, 8080, self.robot_ip, 8082)
         self.cmd = sdk.HighCmd()
         self.udp.InitCmdData(self.cmd)
-        self.velocity_pub = rospy.Publisher("/check/cmd_vel", Twist, queue_size=10)
+        self.robot_pose = None
+        self.target_pose = None
 
+        self.velocity_pub = rospy.Publisher("/check/cmd_vel", Twist, queue_size=10)
+        self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, PoseStamped, self.robot_pose_callback)
+        self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
+        self.new_robot_pose_pub = rospy.Publisher("/check/robot_pose", PoseStamped, queue_size=10)
+        self.new_target_pose_pub = rospy.Publisher("/check/target_pose", PoseStamped, queue_size=10)
+
+        self.last_robot_pose_time = time.time()
+        self.last_target_pose_time = time.time()
+
+
+    def robot_pose_callback(self, msg):
+        """ Xử lý dữ liệu Pose cho robot """
+        self.robot_pose = copy.deepcopy(msg)
+        
+        if MODIFY_Z_UP:
+            # Chuyển đổi vị trí
+            self.robot_pose.pose.position.y = -msg.pose.position.z
+            self.robot_pose.pose.position.z = msg.pose.position.y
+
+            # Lấy quaternion gốc
+            q_orig = msg.pose.orientation
+            q_new = [q_orig.x, -q_orig.z, q_orig.y, q_orig.w]  # Hoán đổi các trục phù hợp
+
+            # Chuẩn hóa quaternion để tránh sai số
+            q_new = tf_trans.unit_vector(q_new)
+
+            # Cập nhật quaternion mới
+            self.robot_pose.pose.orientation.x = q_new[0]
+            self.robot_pose.pose.orientation.y = q_new[1]
+            self.robot_pose.pose.orientation.z = q_new[2]
+            self.robot_pose.pose.orientation.w = q_new[3]
+
+    def target_pose_callback(self, msg):
+        """ Xử lý dữ liệu Pose cho mục tiêu """
+        self.target_pose = copy.deepcopy(msg)
+        
+        if MODIFY_Z_UP:
+            # Chuyển đổi vị trí
+            self.target_pose.pose.position.y = -msg.pose.position.z
+            self.target_pose.pose.position.z = msg.pose.position.y
+
+            # Lấy quaternion gốc
+            q_orig = msg.pose.orientation
+            q_new = [q_orig.x, -q_orig.z, q_orig.y, q_orig.w]  # Hoán đổi các trục phù hợp
+
+            # Chuẩn hóa quaternion
+            q_new = tf_trans.unit_vector(q_new)
+
+            # Cập nhật quaternion mới
+            self.target_pose.pose.orientation.x = q_new[0]
+            self.target_pose.pose.orientation.y = q_new[1]
+            self.target_pose.pose.orientation.z = q_new[2]
+            self.target_pose.pose.orientation.w = q_new[3]
+
+    def is_pose_timeout(self):
+        if time.time() - self.last_robot_pose_time > MSG_TIMEOUT:
+            self.robot_pose = None
+            return True
+        if time.time() - self.last_target_pose_time > MSG_TIMEOUT:
+            self.target_pose = None
+            return True
+        return False
+        
     def shutdown_node(self):
         rospy.loginfo("Shutting down the node...")
         rospy.signal_shutdown("User requested shutdown")
@@ -42,19 +115,50 @@ class RobotPIDController:
         vel_msg.angular.z = wz
         self.velocity_pub.publish(vel_msg)
 
-    def calculate_relative_position(self):
-        try:
-            now = rospy.Time(0)
-            self.tf_listener.waitForTransform(ROBOT_TF_FRAME, TARGET_TF_FRAME, now, rospy.Duration(1.0))
-            (trans, rot) = self.tf_listener.lookupTransform(ROBOT_TF_FRAME, TARGET_TF_FRAME, now)
-            dx, dy = trans[0], trans[1]
-            distance = math.sqrt(dx ** 2 + dy ** 2)
-            desired_yaw = math.atan2(dy, dx)
-            rospy.loginfo(f"Distance: {distance:.2f} m, Desired yaw: {math.degrees(desired_yaw):.2f}°")
-            return distance, desired_yaw
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
-            rospy.logwarn(f"TF Exception: {str(e)}")
+    def get_yaw_from_pose(self, pose):
+        from tf.transformations import euler_from_quaternion
+        """Chuyển quaternion thành góc yaw (quay quanh trục Z)"""
+        orientation_q = pose.pose.orientation
+        quaternion = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+        _, _, yaw = euler_from_quaternion(quaternion)  # Lấy yaw
+        return yaw
+
+    def calculate_relative_position(self, robot_pose: PoseStamped, target_pose: PoseStamped):
+        if robot_pose is None or target_pose is None:
+            rospy.logwarn("No pose message received.")
             return None, None
+
+        # Lấy tọa độ x, y từ PoseStamped
+        x_r, y_r = robot_pose.pose.position.x, robot_pose.pose.position.y
+        x_t, y_t = target_pose.pose.position.x, target_pose.pose.position.y
+
+        print(f'robot_pose x, y: {x_r}, {y_r}')
+        print(f'target_pose x, y: {x_t}, {y_t}')
+
+        # Lấy góc yaw của robot trong world
+        yaw_robot = self.get_yaw_from_pose(robot_pose)
+
+        # Tính dx, dy trong world
+        dx_world = x_t - x_r
+        dy_world = y_t - y_r
+
+        print(f'dx (world): {dx_world}, dy (world): {dy_world}')
+
+        # Chuyển về hệ tọa độ của robot bằng cách xoay ngược lại
+        R_inv = np.array([[math.cos(yaw_robot), math.sin(yaw_robot)],
+                        [-math.sin(yaw_robot), math.cos(yaw_robot)]])  # R^-1 = R^T với ma trận quay
+
+        dx_robot, dy_robot = np.dot(R_inv, np.array([dx_world, dy_world]))
+
+        print(f'dx (robot): {dx_robot}, dy (robot): {dy_robot}')
+
+        # Tính khoảng cách và góc yaw mong muốn trong hệ robot
+        distance = math.sqrt(dx_robot ** 2 + dy_robot ** 2)
+        desired_yaw = math.atan2(dy_robot, dx_robot)
+
+        rospy.loginfo(f"Distance: {distance:.2f} m, Desired yaw: {math.degrees(desired_yaw):.2f}°")
+        return distance, desired_yaw
+
 
     def send_udp_message(self, forward_velocity, yaw_rate):
         print(f"Sending UDP: {forward_velocity}, {yaw_rate}")
@@ -90,7 +194,7 @@ class RobotPIDController:
         if self.mission_complete:
             return
         
-        distance, desired_yaw = self.calculate_relative_position()
+        distance, desired_yaw = self.calculate_relative_position(self.robot_pose, self.target_pose)
         if distance is None or desired_yaw is None:
             return
         
