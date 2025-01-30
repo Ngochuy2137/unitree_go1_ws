@@ -16,13 +16,13 @@ import numpy as np
 
 HIGHLEVEL = 0xee
 RATE = 20  # Loop rate
-TRANS_THRES = 0.4  # Meters
+TRANS_THRES = 0.05  # Meters
 ROT_THRES = math.radians(20)  # 20 degrees in radians
 # ROBOT_TF_FRAME = "dog_frame"
 # TARGET_TF_FRAME = 'chip_star_frame' # 'chip_star_frame' 'pred_impact_point_frame'
 
 ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
-TARGET_POSE_TOPIC = "/mocap_pose_topic/chip_star_pose"
+TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
 LIN_VEL_SCALING = 1.0
 ROT_VEL_SCALING = 1.0
 MSG_TIMEOUT = 0.2
@@ -74,10 +74,13 @@ class RobotPIDController:
             self.robot_pose.pose.orientation.z = q_new[2]
             self.robot_pose.pose.orientation.w = q_new[3]
 
-    def target_pose_callback(self, msg):
+    def target_pose_callback(self, msg: PoseStamped):
         """ Xử lý dữ liệu Pose cho mục tiêu """
         self.target_pose = copy.deepcopy(msg)
-        
+        # time_msg = msg.header.stamp.to_sec()
+        # time_ros_now = rospy.Time.now().to_sec()
+        # time_diff = time_ros_now - time_msg
+        # print(f'time_diff: {time_diff}')
         if MODIFY_Z_UP:
             # Chuyển đổi vị trí
             self.target_pose.pose.position.y = -msg.pose.position.z
@@ -160,22 +163,27 @@ class RobotPIDController:
         return distance, desired_yaw
 
 
-    def send_udp_message(self, forward_velocity, yaw_rate):
-        print(f"Sending UDP: {forward_velocity}, {yaw_rate}")
+    def send_udp_message(self, forward_velocity, angular_velocity):
+        print(f"Sending UDP: {forward_velocity}, {angular_velocity}")
         self.cmd.mode = 2
         self.cmd.gaitType = 1
         self.cmd.velocity = [forward_velocity, 0.0]
-        self.cmd.yawSpeed = yaw_rate
+        self.cmd.yawSpeed = angular_velocity
         self.cmd.footRaiseHeight = 0.08
         self.cmd.bodyHeight = 0.0
         self.udp.SetSend(self.cmd)
         self.udp.Send()
 
-    def get_robot_state(self):
+    def receive_udp_robot_state(self):
         state = sdk.LowState()
         self.udp.GetRecv(state)
+        d = {'FR_0':0, 'FR_1':1, 'FR_2':2,
+         'FL_0':3, 'FL_1':4, 'FL_2':5, 
+         'RR_0':6, 'RR_1':7, 'RR_2':8, 
+         'RL_0':9, 'RL_1':10, 'RL_2':11 }
         if state:
-            print(f"Robot State: {state}")
+            a = state.motorState[d['FR_0']].q
+            print(f"Robot State: {a}")
         else:
             print("No response from robot!")
 
@@ -202,18 +210,21 @@ class RobotPIDController:
             rospy.loginfo("Target reached. Stopping robot.")
             self.mission_complete = True
             self.send_udp_message(0.0, 0.0)
-            self.lay_down_robot()
+            # self.lay_down_robot()
             return
         
         if abs(desired_yaw) > ROT_THRES:
             forward_velocity = 0.0
-            yaw_rate = max(min(desired_yaw, 0.5), -0.5)
+            angular_velocity = max(min(desired_yaw, 0.5), -0.5)
         else:
-            forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1) * LIN_VEL_SCALING
-            yaw_rate = max(min(desired_yaw, 0.5), -0.5) * ROT_VEL_SCALING
+            forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1) * LIN_VEL_SCALING   # lim in range [0.1, 0.4]
+            angular_velocity = max(min(desired_yaw, 0.5), -0.5) * ROT_VEL_SCALING   # lim in range [-0.5, 0.5]
+
+            # forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1)   # lim in range [0.1, 0.4]
+            # angular_velocity = max(min(desired_yaw, 0.5), -0.5)   # lim in range [-0.5, 0.5]
         
-        self.send_udp_message(forward_velocity, yaw_rate)
-        self.publish_velocity(forward_velocity, yaw_rate)
+        self.send_udp_message(forward_velocity, angular_velocity)
+        self.publish_velocity(forward_velocity, angular_velocity)
         self.get_robot_state()
 
     def run(self):
@@ -222,6 +233,7 @@ class RobotPIDController:
         
         while not rospy.is_shutdown():
             self.global_printer.print_green(f"Control rate: {1 / (time.time() - time_start):.2f}")
+            self.receive_udp_robot_state()
             time_start = time.time()
             self.process_movement()
             
