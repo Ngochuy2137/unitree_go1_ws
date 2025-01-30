@@ -30,7 +30,7 @@ tf_listener = None
 mission_complete = False
 distance_threshold = 0.4  # Stopafstand (meters)
 yaw_threshold = math.radians(20)  #4 graden in radialen
-RATE = 10  # Tijdstap (seconden)
+RATE = 20  # Tijdstap (seconden)
 
 
 def shutdown_node():
