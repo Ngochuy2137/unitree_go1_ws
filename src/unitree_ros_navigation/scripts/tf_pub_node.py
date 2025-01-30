@@ -15,12 +15,12 @@ class PoseToTFPublisher:
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
 
         # Subscribe to PoseStamped topics
-        self.pose1_sub = rospy.Subscriber("/mocap_pose_topic/dog_pose/", PoseStamped, self.pose1_callback)
+        self.pose1_sub = rospy.Subscriber("/mocap_pose_topic/dog_pose", PoseStamped, self.pose1_callback)
         self.pose2_sub = rospy.Subscriber("/mocap_pose_topic/chip_star_pose", PoseStamped, self.pose2_callback)
 
         rospy.loginfo("Pose to TF node initialized.")
 
-    def publish_transform(self, pose_msg, frame_id, child_frame_id, hardcore_pos_y_up=None):
+    def publish_transform(self, pose_msg, frame_id, child_frame_id, hardcore_pos_y_up=None, name=''):
         """ Convert PoseStamped to TF and publish """
         t = TransformStamped()
         t.header.stamp = rospy.Time.now()
@@ -63,16 +63,19 @@ class PoseToTFPublisher:
                 t.transform.translation.z = pose_msg.pose.position.z
                 t.transform.rotation = pose_msg.pose.orientation
         
+        print(f'{name}     x, y, z:', t.transform.translation.x, t.transform.translation.y, t.transform.translation.z)
         # Publish TF
         self.tf_broadcaster.sendTransform(t)
 
     def pose1_callback(self, msg):
         print(1)
-        self.publish_transform(msg, "world", "dog_frame", hardcore_pos_y_up=[2, 0, 1.5])
+        self.publish_transform(msg, "world", "dog_frame", name='robot')
 
     def pose2_callback(self, msg):
         print(2)
-        self.publish_transform(msg, "world", "chip_star_frame")
+        # self.publish_transform(msg, "world", "chip_star_frame", hardcore_pos_y_up=[2, 0, 1.5])
+        self.publish_transform(msg, "world", "chip_star_frame", name='target')
+
 
 if __name__ == "__main__":
     node = PoseToTFPublisher()
