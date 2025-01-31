@@ -62,7 +62,7 @@ class RobotPIDController:
 
         self.event_robot_pose = None
         self.event_time = None
-        self.got_robot_pose_event = False
+        self.got_first_target_event = False
 
 
     def robot_pose_callback(self, msg):
@@ -148,12 +148,12 @@ class RobotPIDController:
         x_r, y_r = robot_pose.pose.position.x, robot_pose.pose.position.y
         x_t, y_t = target_pose.pose.position.x, target_pose.pose.position.y
 
-        if not self.got_robot_pose_event:
+        if not self.got_first_target_event:
             self.event_robot_pose = np.array([robot_pose.pose.position.x, robot_pose.pose.position.y, robot_pose.pose.position.z])
             self.event_time = time.time()
             # log warn
             rospy.logwarn("Event robot pose received.")
-            self.got_robot_pose_event = True
+            self.got_first_target_event = True
 
         # check if robot pose is different from the event pose
         if self.event_robot_pose is not None:
@@ -161,15 +161,14 @@ class RobotPIDController:
             equal = np.allclose(self.event_robot_pose, robot_pose_np, atol=0.001)
             if not equal:
                 time_delay = time.time() - self.event_time
-                rospy.logwarn(f"Reaction delay: {time_delay} s")
+                global_printer.print_blue(f"Reaction delay: {time_delay} s")
+                fly_time_start = float(target_pose.header.frame_id)
+                global_printer.print_blue(f'Preparation time: {(rospy.Time.now().to_nsec() - fly_time_start) / 1e9}')
                 global_printer.print_green(f"Robot moving. Reaction delay: {time_delay} s")
                 # shutdown_node()
                 self.event_robot_pose = None
-                # self.got_robot_pose_event = False
             else:
                 global_printer.print_yellow("Robot standing still")
-
-
 
 
         if DEBUG: print(f'robot_pose x, y: {x_r}, {y_r}')
