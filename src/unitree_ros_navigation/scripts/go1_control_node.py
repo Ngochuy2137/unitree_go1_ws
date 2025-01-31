@@ -8,26 +8,35 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
 
 sys.path.append('/home/server-huynn/workspace/robot_catching_project/trajectory_prediction/go1-control-rocat/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64')
+# sys.path.append('/home/server-huynn/workspace/robot_catching_project/trajectory_prediction/go1-control-rocat/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/arm64')
 import robot_interface as sdk
 from python_utils import printer
 import copy
 import tf.transformations as tf_trans
 import numpy as np
+from std_msgs.msg import Float32
+from python_utils import printer
+
+global_printer = printer.Printer()
 
 HIGHLEVEL = 0xee
-RATE = 20  # Loop rate
+RATE = 100  # Loop rate
 TRANS_THRES = 0.05  # Meters
-ROT_THRES = math.radians(20)  # 20 degrees in radians
+ROT_THRES = math.radians(30)  # 20 degrees in radians
 # ROBOT_TF_FRAME = "dog_frame"
 # TARGET_TF_FRAME = 'chip_star_frame' # 'chip_star_frame' 'pred_impact_point_frame'
 
 ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
-LIN_VEL_SCALING = 1.0
-ROT_VEL_SCALING = 1.0
+LIN_VEL_SCALING = 6.0
+ROT_VEL_SCALING = 3.0
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
+DEBUG = False
 
+def shutdown_node():
+    rospy.loginfo("Shutting down the node...")
+    rospy.signal_shutdown("User requested shutdown")
 
 class RobotPIDController:
     def __init__(self, robot_ip="192.168.123.161"):
@@ -50,6 +59,10 @@ class RobotPIDController:
 
         self.last_robot_pose_time = time.time()
         self.last_target_pose_time = time.time()
+
+        self.event_robot_pose = None
+        self.event_time = None
+        self.got_robot_pose_event = False
 
 
     def robot_pose_callback(self, msg):
@@ -135,8 +148,32 @@ class RobotPIDController:
         x_r, y_r = robot_pose.pose.position.x, robot_pose.pose.position.y
         x_t, y_t = target_pose.pose.position.x, target_pose.pose.position.y
 
-        print(f'robot_pose x, y: {x_r}, {y_r}')
-        print(f'target_pose x, y: {x_t}, {y_t}')
+        if not self.got_robot_pose_event:
+            self.event_robot_pose = np.array([robot_pose.pose.position.x, robot_pose.pose.position.y, robot_pose.pose.position.z])
+            self.event_time = time.time()
+            # log warn
+            rospy.logwarn("Event robot pose received.")
+            self.got_robot_pose_event = True
+
+        # check if robot pose is different from the event pose
+        if self.event_robot_pose is not None:
+            robot_pose_np = np.array([robot_pose.pose.position.x, robot_pose.pose.position.y, robot_pose.pose.position.z])
+            equal = np.allclose(self.event_robot_pose, robot_pose_np, atol=0.001)
+            if not equal:
+                time_delay = time.time() - self.event_time
+                rospy.logwarn(f"Reaction delay: {time_delay} s")
+                global_printer.print_green(f"Robot moving. Reaction delay: {time_delay} s")
+                # shutdown_node()
+                self.event_robot_pose = None
+                # self.got_robot_pose_event = False
+            else:
+                global_printer.print_yellow("Robot standing still")
+
+
+
+
+        if DEBUG: print(f'robot_pose x, y: {x_r}, {y_r}')
+        if DEBUG: print(f'target_pose x, y: {x_t}, {y_t}')
 
         # Lấy góc yaw của robot trong world
         yaw_robot = self.get_yaw_from_pose(robot_pose)
@@ -145,7 +182,7 @@ class RobotPIDController:
         dx_world = x_t - x_r
         dy_world = y_t - y_r
 
-        print(f'dx (world): {dx_world}, dy (world): {dy_world}')
+        if DEBUG: print(f'dx (world): {dx_world}, dy (world): {dy_world}')
 
         # Chuyển về hệ tọa độ của robot bằng cách xoay ngược lại
         R_inv = np.array([[math.cos(yaw_robot), math.sin(yaw_robot)],
@@ -153,13 +190,13 @@ class RobotPIDController:
 
         dx_robot, dy_robot = np.dot(R_inv, np.array([dx_world, dy_world]))
 
-        print(f'dx (robot): {dx_robot}, dy (robot): {dy_robot}')
+        if DEBUG: print(f'dx (robot): {dx_robot}, dy (robot): {dy_robot}')
 
         # Tính khoảng cách và góc yaw mong muốn trong hệ robot
         distance = math.sqrt(dx_robot ** 2 + dy_robot ** 2)
         desired_yaw = math.atan2(dy_robot, dx_robot)
 
-        rospy.loginfo(f"Distance: {distance:.2f} m, Desired yaw: {math.degrees(desired_yaw):.2f}°")
+        if DEBUG: rospy.loginfo(f"Distance: {distance:.2f} m, Desired yaw: {math.degrees(desired_yaw):.2f}°")
         return distance, desired_yaw
 
 
@@ -186,6 +223,18 @@ class RobotPIDController:
             print(f"Robot State: {a}")
         else:
             print("No response from robot!")
+
+    # def get_robot_state(self):
+    #     state = sdk.HighState()
+    #     self.udp.GetRecv(state)
+    #     if state:
+    #         # In ra các thông tin trạng thái cần thiết
+    #         print('state:', state)
+    #         print(f"Roll: {state.imu.rpy[0]:.2f}, Pitch: {state.imu.rpy[1]:.2f}, Yaw: {state.imu.rpy[2]:.2f}")
+    #         print(f"Forward Speed: {state.velocity} m/s")
+    #         # print(f"Battery Voltage: {state.battery:.2f} V")
+    #     else:
+    #         print("No response from robot!")
 
     def lay_down_robot(self):
         rospy.loginfo("Laying down the robot...")
@@ -225,16 +274,15 @@ class RobotPIDController:
         
         self.send_udp_message(forward_velocity, angular_velocity)
         self.publish_velocity(forward_velocity, angular_velocity)
-        self.get_robot_state()
 
     def run(self):
         rate = rospy.Rate(RATE)
         time_start = time.time()
         
         while not rospy.is_shutdown():
-            self.global_printer.print_green(f"Control rate: {1 / (time.time() - time_start):.2f}")
-            self.receive_udp_robot_state()
+            if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - time_start):.2f}")
             time_start = time.time()
+            if DEBUG: self.receive_udp_robot_state()
             self.process_movement()
             
             if self.mission_complete:
