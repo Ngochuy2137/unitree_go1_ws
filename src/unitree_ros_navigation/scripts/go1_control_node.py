@@ -28,7 +28,7 @@ ROT_THRES = math.radians(30)  # 20 degrees in radians
 
 ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
-LIN_VEL_SCALING = 8.0
+LIN_VEL_SCALING = 9.0
 ROT_VEL_SCALING = 3.0
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
@@ -48,7 +48,7 @@ class RobotPIDController:
         self.udp = sdk.UDP(HIGHLEVEL, 8080, self.robot_ip, 8082)
         self.cmd = sdk.HighCmd()
         self.udp.InitCmdData(self.cmd)
-        self.robot_pose = None
+        self.robot_pose:PoseStamped = None
         self.target_pose = None
 
         self.velocity_pub = rospy.Publisher("/check/cmd_vel", Twist, queue_size=10)
@@ -302,9 +302,14 @@ class RobotPIDController:
         
         vel_list = []
         time_list = []
+
+        while self.robot_pose is None:
+            # sleep to wait for robot pose
+            rate.sleep()
+
+        robot_pos_start = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
         while not rospy.is_shutdown():
             if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - time_start):.2f}")
-            time_start = time.time()
             if DEBUG: self.receive_udp_robot_state()
             vx, wz = self.process_movement()
             if vx is not None and wz is not None:
@@ -312,9 +317,15 @@ class RobotPIDController:
                 time_list.append(time.time())
             
             if self.mission_complete:
-                print("\n--- Mission Complete ---")
-                print(f"Time run: {time.time() - time_start:.6f} s")
-                print(f"Average velocity: {self.cal_avg_vel(vel_list, time_list):.2f} m/s")
+                print("\n-------- Mission Complete --------")
+                robot_pos_stop = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
+                time_run = time.time() - time_start
+                print(f"Time run: {time_run:.6f} s")
+                dis_run = np.linalg.norm(robot_pos_start - robot_pos_stop)  # calculate distance
+                print(f'Dis run: {dis_run}')
+                print(f'Real avg vel: {dis_run / (time_run):.6f} m/s')
+                print(f"Command avg velocity: {self.cal_avg_vel(vel_list, time_list):.2f} m/s")
+                print('----------------------------------\n')
                 self.shutdown_node()
             rate.sleep()
 
