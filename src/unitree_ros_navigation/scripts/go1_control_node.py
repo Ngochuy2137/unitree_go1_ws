@@ -21,21 +21,21 @@ global_printer = printer.Printer()
 
 HIGHLEVEL = 0xee
 RATE = 100  # Loop rate
-TRANS_THRES = 0.05  # Meters
+TRANS_THRES = 0.2  # Meters
 ROT_THRES = math.radians(30)  # 20 degrees in radians
 # ROBOT_TF_FRAME = "dog_frame"
 # TARGET_TF_FRAME = 'chip_star_frame' # 'chip_star_frame' 'pred_impact_point_frame'
 
 ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
-LIN_VEL_SCALING = 6.0
+LIN_VEL_SCALING = 8.0
 ROT_VEL_SCALING = 3.0
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
 DEBUG = False
 
 def shutdown_node():
-    rospy.loginfo("Shutting down the node...")
+    rospy.loginfo("FORCE Shutting down the node...")
     rospy.signal_shutdown("User requested shutdown")
 
 class RobotPIDController:
@@ -162,8 +162,9 @@ class RobotPIDController:
             if not equal:
                 time_delay = time.time() - self.event_time
                 global_printer.print_blue(f"Reaction delay: {time_delay} s")
-                fly_time_start = float(target_pose.header.frame_id)
-                global_printer.print_blue(f'Preparation time: {(rospy.Time.now().to_nsec() - fly_time_start) / 1e9}')
+                if target_pose.header.frame_id is str:
+                    fly_time_start = float(target_pose.header.frame_id)
+                    global_printer.print_blue(f'Preparation time: {(rospy.Time.now().to_nsec() - fly_time_start) / 1e9}')
                 global_printer.print_green(f"Robot moving. Reaction delay: {time_delay} s")
                 # shutdown_node()
                 self.event_robot_pose = None
@@ -200,9 +201,9 @@ class RobotPIDController:
 
 
     def send_udp_message(self, forward_velocity, angular_velocity):
-        print(f"Sending UDP: {forward_velocity}, {angular_velocity}")
+        # print(f"Sending UDP: {forward_velocity}, {angular_velocity}")
         self.cmd.mode = 2
-        self.cmd.gaitType = 1
+        self.cmd.gaitType = 2
         self.cmd.velocity = [forward_velocity, 0.0]
         self.cmd.yawSpeed = angular_velocity
         self.cmd.footRaiseHeight = 0.08
@@ -248,18 +249,18 @@ class RobotPIDController:
 
     def process_movement(self):
         if self.mission_complete:
-            return
+            return None, None
         
         distance, desired_yaw = self.calculate_relative_position(self.robot_pose, self.target_pose)
         if distance is None or desired_yaw is None:
-            return
+            return None, None
         
         if distance < TRANS_THRES:
             rospy.loginfo("Target reached. Stopping robot.")
             self.mission_complete = True
             self.send_udp_message(0.0, 0.0)
             # self.lay_down_robot()
-            return
+            return None, None
         
         if abs(desired_yaw) > ROT_THRES:
             forward_velocity = 0.0
@@ -271,22 +272,49 @@ class RobotPIDController:
             # forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1)   # lim in range [0.1, 0.4]
             # angular_velocity = max(min(desired_yaw, 0.5), -0.5)   # lim in range [-0.5, 0.5]
         
+        print('forward_velocity: ', forward_velocity)
         self.send_udp_message(forward_velocity, angular_velocity)
         self.publish_velocity(forward_velocity, angular_velocity)
+        # return just for debugging
+        return forward_velocity, angular_velocity
 
+    def cal_avg_vel(self, velocities, timestamps):
+        # Kiểm tra tính hợp lệ của dữ liệu đầu vào
+        if len(timestamps) == len(velocities):
+            velocities = velocities[1:]
+        else:
+            raise ValueError("Số lượng vận tốc và thời gian không khớp nhau.")
+        # Tính các khoảng thời gian delta_t
+        delta_t = [timestamps[i+1] - timestamps[i] for i in range(len(velocities))]
+        # Tính tổng tích vận tốc-thời gian và tổng các khoảng thời gian
+        weighted_sum = sum(v * dt for v, dt in zip(velocities, delta_t))
+        total_time = sum(delta_t)
+        # Kiểm tra tránh chia cho 0
+        if total_time == 0:
+            raise ValueError("Tổng thời gian bằng 0, không thể tính vận tốc trung bình.")
+        # Tính vận tốc trung bình
+        average_velocity = weighted_sum / total_time
+        return average_velocity
+    
     def run(self):
         rate = rospy.Rate(RATE)
         time_start = time.time()
         
+        vel_list = []
+        time_list = []
         while not rospy.is_shutdown():
             if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - time_start):.2f}")
             time_start = time.time()
             if DEBUG: self.receive_udp_robot_state()
-            self.process_movement()
+            vx, wz = self.process_movement()
+            if vx is not None and wz is not None:
+                vel_list.append(vx)
+                time_list.append(time.time())
             
             if self.mission_complete:
                 print("\n--- Mission Complete ---")
-                print(f"Time run: {time.time() - time_start:.2f} s")
+                print(f"Time run: {time.time() - time_start:.6f} s")
+                print(f"Average velocity: {self.cal_avg_vel(vel_list, time_list):.2f} m/s")
                 self.shutdown_node()
             rate.sleep()
 
