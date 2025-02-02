@@ -28,8 +28,9 @@ ROT_THRES = math.radians(30)  # 20 degrees in radians
 
 ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
-LIN_VEL_SCALING = 9.0
-ROT_VEL_SCALING = 3.0
+LIN_VEL_SCALING = 3.0
+ROT_VEL_SCALING = 2.0
+GAIT_TYPE = 1
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
 DEBUG = False
@@ -203,7 +204,7 @@ class RobotPIDController:
     def send_udp_message(self, forward_velocity, angular_velocity):
         # print(f"Sending UDP: {forward_velocity}, {angular_velocity}")
         self.cmd.mode = 2
-        self.cmd.gaitType = 2
+        self.cmd.gaitType = GAIT_TYPE
         self.cmd.velocity = [forward_velocity, 0.0]
         self.cmd.yawSpeed = angular_velocity
         self.cmd.footRaiseHeight = 0.08
