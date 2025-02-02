@@ -41,7 +41,7 @@ def shutdown_node():
     rospy.loginfo("FORCE Shutting down the node...")
     rospy.signal_shutdown("User requested shutdown")
 
-class RobotPIDController:
+class RobotController:
     def __init__(self, robot_ip="192.168.123.161"):
         rospy.init_node('dynamic_yaw_correction', anonymous=True)
         self.global_printer = printer.Printer()
@@ -143,10 +143,6 @@ class RobotPIDController:
         return yaw
 
     def calculate_relative_position(self, robot_pose: PoseStamped, target_pose: PoseStamped):
-        if robot_pose is None or target_pose is None:
-            rospy.logwarn("No pose message received.")
-            return None, None
-
         # Lấy tọa độ x, y từ PoseStamped
         x_r, y_r = robot_pose.pose.position.x, robot_pose.pose.position.y
         x_t, y_t = target_pose.pose.position.x, target_pose.pose.position.y
@@ -261,6 +257,11 @@ class RobotPIDController:
     def process_movement(self, exp_time_start):
         if self.mission_complete:
             return None, None
+
+        if self.robot_pose is None or self.target_pose is None:
+            rospy.logwarn("No pose message received.")
+            return None, None
+
         if self.target_pose is None:
             self.dump_run(exp_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
             return None, None
@@ -347,7 +348,7 @@ class RobotPIDController:
 
 if __name__ == '__main__':
     try:
-        node = RobotPIDController()
+        node = RobotController()
         node.run()
     except rospy.ROSInterruptException:
         rospy.loginfo("Node interrupted, shutting down.")
