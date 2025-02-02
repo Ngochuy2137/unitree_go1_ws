@@ -31,6 +31,10 @@ TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/ch
 LIN_VEL_SCALING = 3.0
 ROT_VEL_SCALING = 2.0
 GAIT_TYPE = 2
+KP = 1.5
+KI = 0.0
+KD = 0.1
+
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
 DEBUG = False
@@ -40,6 +44,81 @@ DUMP_RUN_VEL = 1.0
 def shutdown_node():
     rospy.loginfo("FORCE Shutting down the node...")
     rospy.signal_shutdown("User requested shutdown")
+
+
+class PIDController:
+    def __init__(self, Kp=1.0, Ki=0.0, Kd=0.1, vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0), integral_limit=1.0, deadband=0.01):
+        """
+        Khởi tạo bộ điều khiển PID.
+
+        Args:
+            Kp (float): Hệ số tỉ lệ (Proportional Gain).
+            Ki (float): Hệ số tích phân (Integral Gain).
+            Kd (float): Hệ số vi phân (Derivative Gain).
+            max_speed (float): Giới hạn vận tốc tối đa (m/s).
+        """
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.vx_range = vx_range
+        self.vy_range = vy_range
+        self.integral_limit = integral_limit
+        self.deadband = deadband
+
+        # Trạng thái PID
+        self.integral_x = 0.0
+        self.integral_y = 0.0
+        self.prev_error_x = 0.0
+        self.prev_error_y = 0.0
+
+    def calculate(self, current_pos, goal_pos, dt):
+        x_current, y_current = current_pos
+        x_goal, y_goal = goal_pos
+
+        # Tính sai số vị trí
+        error_x = x_goal - x_current
+        error_y = y_goal - y_current
+        print('   error_x: ', error_x)
+        print('   error_y: ', error_y)
+
+        # Bỏ qua sai số nhỏ (deadband)
+        if abs(error_x) < self.deadband:
+            error_x = 0.0
+        if abs(error_y) < self.deadband:
+            error_y = 0.0
+
+        # Tích phân sai số với giới hạn
+        self.integral_x += error_x * dt
+        self.integral_y += error_y * dt
+        self.integral_x = max(min(self.integral_x, self.integral_limit), -self.integral_limit)
+        self.integral_y = max(min(self.integral_y, self.integral_limit), -self.integral_limit)
+
+        # Đạo hàm sai số
+        derivative_x = (error_x - self.prev_error_x) / dt if dt > 0 else 0.0
+        derivative_y = (error_y - self.prev_error_y) / dt if dt > 0 else 0.0
+
+        # Bộ điều khiển PID
+        vx = (self.Kp * error_x) + (self.Ki * self.integral_x) + (self.Kd * derivative_x)
+        vy = (self.Kp * error_y) + (self.Ki * self.integral_y) + (self.Kd * derivative_y)
+
+        # Giới hạn vận tốc
+        vx = max(min(vx, self.vx_range[1]), self.vx_range[0])
+        vy = max(min(vy, self.vy_range[1]), self.vy_range[0])
+
+        # Cập nhật sai số trước đó
+        self.prev_error_x = error_x
+        self.prev_error_y = error_y
+
+        return vx, vy
+
+    def reset(self):
+        """
+        Reset trạng thái PID (tích phân và sai số trước đó).
+        """
+        self.integral_x = 0.0
+        self.integral_y = 0.0
+        self.prev_error_x = 0.0
+        self.prev_error_y = 0.0
 
 class RobotController:
     def __init__(self, robot_ip="192.168.123.161"):
@@ -67,6 +146,7 @@ class RobotController:
         self.event_time = None
         self.got_first_target_event = False
 
+        self.pid = PIDController(Kp=KP, Ki=KI, Kd=KD, vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0))
 
     def robot_pose_callback(self, msg):
         """ Xử lý dữ liệu Pose cho robot """
@@ -128,10 +208,11 @@ class RobotController:
         rospy.loginfo("Shutting down the node...")
         rospy.signal_shutdown("User requested shutdown")
 
-    def publish_velocity(self, vx, wz):
+    def publish_velocity(self, vx, vy):
         vel_msg = Twist()
         vel_msg.linear.x = vx
-        vel_msg.angular.z = wz
+        vel_msg.linear.y = vy
+        # vel_msg.angular.z = wz
         self.velocity_pub.publish(vel_msg)
 
     def get_yaw_from_pose(self, pose):
@@ -199,12 +280,12 @@ class RobotController:
         return distance, desired_yaw
 
 
-    def send_udp_message(self, forward_velocity, angular_velocity):
+    def send_udp_message(self, vx, vy):
         # print(f"Sending UDP: {forward_velocity}, {angular_velocity}")
         self.cmd.mode = 2
         self.cmd.gaitType = GAIT_TYPE
-        self.cmd.velocity = [forward_velocity, 0.0]
-        self.cmd.yawSpeed = angular_velocity
+        self.cmd.velocity = [vx, vy]
+        # self.cmd.yawSpeed = angular_velocity
         self.cmd.footRaiseHeight = 0.08
         self.cmd.bodyHeight = 0.0
         self.udp.SetSend(self.cmd)
@@ -254,44 +335,47 @@ class RobotController:
         else:
             pass
 
-    def process_movement(self, exp_time_start):
+    def process_movement(self, exp_time_start, last_time):
         if self.mission_complete:
-            return None, None
-
-        if self.robot_pose is None or self.target_pose is None:
-            rospy.logwarn("No pose message received.")
             return None, None
 
         if self.target_pose is None:
             self.dump_run(exp_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
             return None, None
-        
-        distance, desired_yaw = self.calculate_relative_position(self.robot_pose, self.target_pose)
-        if distance is None or desired_yaw is None:
-            return None, None
-        
-        if distance < TRANS_THRES:
-            rospy.loginfo("Target reached. Stopping robot.")
-            self.mission_complete = True
-            self.send_udp_message(0.0, 0.0)
-            # self.lay_down_robot()
-            return None, None
-        
-        if abs(desired_yaw) > ROT_THRES:
-            forward_velocity = 0.0
-            angular_velocity = max(min(desired_yaw, 0.5), -0.5)
-        else:
-            forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1) * LIN_VEL_SCALING   # lim in range [0.1, 0.4]
-            angular_velocity = max(min(desired_yaw, 0.5), -0.5) * ROT_VEL_SCALING   # lim in range [-0.5, 0.5]
 
-            # forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1)   # lim in range [0.1, 0.4]
-            # angular_velocity = max(min(desired_yaw, 0.5), -0.5)   # lim in range [-0.5, 0.5]
+        if self.robot_pose is None or self.target_pose is None:
+            rospy.logwarn("No pose message received.")
+            return None, None
         
-        print('forward_velocity: ', forward_velocity)
-        self.send_udp_message(forward_velocity, angular_velocity)
-        self.publish_velocity(forward_velocity, angular_velocity)
+        # distance, desired_yaw = self.calculate_relative_position(self.robot_pose, self.target_pose)
+        # if distance is None or desired_yaw is None:
+        #     return None, None
+        
+        # if distance < TRANS_THRES:
+        #     rospy.loginfo("Target reached. Stopping robot.")
+        #     self.mission_complete = True
+        #     self.send_udp_message(0.0, 0.0)
+        #     # self.lay_down_robot()
+        #     return None, None
+        
+        # if abs(desired_yaw) > ROT_THRES:
+        #     forward_velocity = 0.0
+        #     angular_velocity = max(min(desired_yaw, 0.5), -0.5)
+        # else:
+        #     forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1) * LIN_VEL_SCALING   # lim in range [0.1, 0.4]
+        #     angular_velocity = max(min(desired_yaw, 0.5), -0.5) * ROT_VEL_SCALING   # lim in range [-0.5, 0.5]
+
+        #     # forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1)   # lim in range [0.1, 0.4]
+        #     # angular_velocity = max(min(desired_yaw, 0.5), -0.5)   # lim in range [-0.5, 0.5]
+        print('\n-----')
+        delta_t = time.time() - last_time
+        vx, vy = self.pid.calculate([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y], [self.target_pose.pose.position.x, self.target_pose.pose.position.y], delta_t)
+        # print('forward_velocity: ', forward_velocity)
+        print(f'    vx: {vx}, vy: {vy}')
+        self.send_udp_message(vx, vy)
+        self.publish_velocity(vx, vy)
         # return just for debugging
-        return forward_velocity, angular_velocity
+        return vx, vy
 
     def cal_avg_vel(self, velocities, timestamps):
         # Kiểm tra tính hợp lệ của dữ liệu đầu vào
@@ -323,13 +407,16 @@ class RobotController:
             rate.sleep()
 
         robot_pos_start = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
+
+        last_time = time.time()
         while not rospy.is_shutdown():
             if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - exp_time_start):.2f}")
             if DEBUG: self.receive_udp_robot_state()
-            vx, wz = self.process_movement(exp_time_start)
+            vx, vy = self.process_movement(exp_time_start, last_time=last_time)
+            last_time = time.time()
             
             # just for debugging
-            if vx is not None and wz is not None:
+            if vx is not None and vy is not None:
                 vel_list.append(vx)
                 time_list.append(time.time())
             if self.mission_complete:
