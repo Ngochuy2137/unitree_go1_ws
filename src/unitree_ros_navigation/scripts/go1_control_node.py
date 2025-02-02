@@ -30,10 +30,12 @@ ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
 LIN_VEL_SCALING = 3.0
 ROT_VEL_SCALING = 2.0
-GAIT_TYPE = 1
+GAIT_TYPE = 2
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
 DEBUG = False
+DUMP_RUN_TIME = 0.1
+DUMP_RUN_VEL = 1.0
 
 def shutdown_node():
     rospy.loginfo("FORCE Shutting down the node...")
@@ -248,8 +250,19 @@ class RobotPIDController:
         self.udp.SetSend(self.cmd)
         self.udp.Send()
 
-    def process_movement(self):
+    def dump_run(self, time_start, time_run, vel):
+        if time.time() - time_start < DUMP_RUN_TIME:
+            self.send_udp_message(DUMP_RUN_VEL, 0.0)
+            self.publish_velocity(DUMP_RUN_VEL, 0.0)
+            print('Dump run')
+        else:
+            pass
+
+    def process_movement(self, exp_time_start):
         if self.mission_complete:
+            return None, None
+        if self.target_pose is None:
+            self.dump_run(exp_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
             return None, None
         
         distance, desired_yaw = self.calculate_relative_position(self.robot_pose, self.target_pose)
@@ -299,7 +312,7 @@ class RobotPIDController:
     
     def run(self):
         rate = rospy.Rate(RATE)
-        time_start = time.time()
+        exp_time_start = time.time()
         
         vel_list = []
         time_list = []
@@ -310,17 +323,18 @@ class RobotPIDController:
 
         robot_pos_start = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
         while not rospy.is_shutdown():
-            if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - time_start):.2f}")
+            if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - exp_time_start):.2f}")
             if DEBUG: self.receive_udp_robot_state()
-            vx, wz = self.process_movement()
+            vx, wz = self.process_movement(exp_time_start)
+            
+            # just for debugging
             if vx is not None and wz is not None:
                 vel_list.append(vx)
                 time_list.append(time.time())
-            
             if self.mission_complete:
                 print("\n-------- Mission Complete --------")
                 robot_pos_stop = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
-                time_run = time.time() - time_start
+                time_run = time.time() - exp_time_start
                 print(f"Time run: {time_run:.6f} s")
                 dis_run = np.linalg.norm(robot_pos_start - robot_pos_stop)  # calculate distance
                 print(f'Dis run: {dis_run}')
