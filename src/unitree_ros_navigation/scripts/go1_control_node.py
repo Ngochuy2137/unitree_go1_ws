@@ -31,15 +31,21 @@ TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/ch
 LIN_VEL_SCALING = 3.0
 ROT_VEL_SCALING = 2.0
 GAIT_TYPE = 2
-KP = 1.5
-KI = 0.0
-KD = 0.1
+DIS_XY_THRES = 0.2
+
+# PID_X = [2.5, 0.0, 0.1]
+# PID_Y = [1.5, 0.0, 0.1]
+# PID_THETA = [2.0, 0.0, 0.1]
+
+PID_X = [2.5, 0.0, 0.1]
+PID_Y = [2.5, 0.0, 0.1]
+PID_THETA = [2.0, 0.0, 0.1]
 
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
 DEBUG = False
-DUMP_RUN_TIME = 0.1
-DUMP_RUN_VEL = 1.0
+DUMP_RUN_TIME = 0.2
+DUMP_RUN_VEL = 2.0
 
 NO_CONTROL = False
 
@@ -54,27 +60,23 @@ class PIDController:
                 Kp_y=1.5, Ki_y=0.0, Kd_y=0.1,
                 Kp_theta=2.0, Ki_theta=0.0, Kd_theta=0.1,
                 vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0), wz_range=(-2, 2),
-                integral_limit=1.0, deadband=0.01):
-        """
-        Khởi tạo bộ điều khiển PID.
+                integral_limit=1.0, deadband_xytheta=(0.05, 0.05, 3*math.pi/180),
+                boost_x_enabled=False):
 
-        Args:
-            Kp (float): Hệ số tỉ lệ (Proportional Gain).
-            Ki (float): Hệ số tích phân (Integral Gain).
-            Kd (float): Hệ số vi phân (Derivative Gain).
-            max_speed (float): Giới hạn vận tốc tối đa (m/s).
-        """
-        # Tham số PID cho X, Y, và góc quay (theta)
+        # Tham số PID cho X, Y, và Theta (góc quay)
         self.Kp_x, self.Ki_x, self.Kd_x = Kp_x, Ki_x, Kd_x
         self.Kp_y, self.Ki_y, self.Kd_y = Kp_y, Ki_y, Kd_y
         self.Kp_theta, self.Ki_theta, self.Kd_theta = Kp_theta, Ki_theta, Kd_theta
 
+        # Giới hạn vận tốc
         self.vx_range = vx_range
         self.vy_range = vy_range
-        self.wz_range = wz_range  # Giới hạn vận tốc góc (omega)
+        self.wz_range = wz_range
 
         self.integral_limit = integral_limit
-        self.deadband = deadband
+        self.deadband_x, self.deadband_y, self.deadband_theta = deadband_xytheta
+        self.boost_x_enabled = boost_x_enabled  # Bật/tắt tính năng boost trục X
+
         # Trạng thái PID
         self.integral_x = 0.0
         self.integral_y = 0.0
@@ -86,32 +88,31 @@ class PIDController:
 
     def calculate(self, current_pos, goal_pos, current_quat, dt):
         # Vị trí hiện tại và vị trí đích
-        x_current, y_current = current_pos
-        x_goal, y_goal = goal_pos
+        x_r, y_r = current_pos
+        x_g, y_g = goal_pos
 
-        # Chuyển quaternion sang yaw (góc quay của robot)
-        current_theta = self.quaternion_to_yaw(current_quat)
+        # Chuyển quaternion của robot sang yaw (hướng robot)
+        theta_r = self.quaternion_to_yaw(current_quat)
 
-        # Tính sai số vị trí
-        error_x = x_goal - x_current
-        error_y = y_goal - y_current
+        # ===== Chuyển đổi từ absolute → relative coordinates =====
+        delta_x = x_g - x_r
+        delta_y = y_g - y_r
 
-        # Tính góc mục tiêu (hướng từ robot đến goal)
-        theta_goal = math.atan2(error_y, error_x)
+        # Sai số vị trí trong hệ tọa độ của robot
+        error_x = math.cos(theta_r) * delta_x + math.sin(theta_r) * delta_y
+        error_y = -math.sin(theta_r) * delta_x + math.cos(theta_r) * delta_y
 
-        # Sai số góc: chênh lệch giữa hướng hiện tại và hướng đến goal
-        angle = theta_goal - current_theta
-        # Chuyển góc về khoảng -pi đến pi
-        error_theta = math.atan2(math.sin(angle), math.cos(angle))
-        # print(f'angle: {error_theta*180/np.pi:.3f}')
-
+        # Sai số góc (robot hướng về mục tiêu)
+        error_theta = self.normalize_angle(math.atan2(delta_y, delta_x) - theta_r)
 
         # ===== Deadband để bỏ qua sai số nhỏ =====
-        if abs(error_y) < self.deadband:
+        if abs(error_y) < self.deadband_y:
             error_y = 0.0
-        if abs(error_x) < self.deadband:
+        if abs(error_x) < self.deadband_x:
             error_x = 0.0
-        if abs(error_theta) < math.radians(3):  # Bỏ qua sai số góc nhỏ hơn 2 độ
+
+        dis_xy = math.sqrt(error_x**2 + error_y**2)
+        if abs(error_theta) < self.deadband_theta or dis_xy<0.3:  # Deadband cho sai số góc (2 độ)
             error_theta = 0.0
 
         # ===== PID cho trục Y =====
@@ -120,14 +121,17 @@ class PIDController:
         derivative_y = (error_y - self.prev_error_y) / dt if dt > 0 else 0.0
         vy = (self.Kp_y * error_y) + (self.Ki_y * self.integral_y) + (self.Kd_y * derivative_y)
 
-        # ===== PID cho trục X =====
+        # ===== PID cho trục X (có thể bật/tắt boost) =====
         self.integral_x += error_x * dt
         self.integral_x = max(min(self.integral_x, self.integral_limit), -self.integral_limit)
         derivative_x = (error_x - self.prev_error_x) / dt if dt > 0 else 0.0
 
-        ##  Tăng cường điều khiển X khi Y đã ổn định
-        # Kp_x_boost = self.Kp_x * 1.5 if abs(error_y) < 0.05 else self.Kp_x
-        Kp_x_boost = self.Kp_x
+        # Bật/tắt tăng cường điều khiển X khi Y ổn định
+        if self.boost_x_enabled:
+            Kp_x_boost = self.Kp_x * 1.5 if abs(error_y) < 0.05 else self.Kp_x
+        else:
+            Kp_x_boost = self.Kp_x
+
         vx = (Kp_x_boost * error_x) + (self.Ki_x * self.integral_x) + (self.Kd_x * derivative_x)
 
         # ===== PID cho góc quay (Theta) =====
@@ -149,20 +153,32 @@ class PIDController:
         return vx, vy, wz
 
     def reset(self):
-        """
-        Reset trạng thái PID (tích phân và sai số trước đó).
-        """
         self.integral_x = 0.0
         self.integral_y = 0.0
         self.integral_theta = 0.0
-
         self.prev_error_x = 0.0
         self.prev_error_y = 0.0
         self.prev_error_theta = 0.0
 
-    def quaternion_to_yaw(self, q):
+    @staticmethod
+    def normalize_angle(angle):
+        """
+        Chuẩn hóa góc về khoảng [-π, π].
+        """
+        return math.atan2(math.sin(angle), math.cos(angle))
+
+    @staticmethod
+    def quaternion_to_yaw(q):
+        """
+        Chuyển quaternion sang yaw (radian).
+
+        Args:
+            q (tuple): Quaternion (x, y, z, w)
+
+        Returns:
+            float: Góc yaw (radian)
+        """
         x, y, z, w = q
-        # Tính toán yaw
         siny_cosp = 2.0 * (w * z + x * y)
         cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
         yaw = math.atan2(siny_cosp, cosy_cosp)
@@ -195,11 +211,16 @@ class RobotController:
         self.got_first_target_event = False
 
         # self.pid = PIDController(Kp=KP, Ki=KI, Kd=KD, vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0))
-        self.pid = PIDController(Kp_x=1.0, Ki_x=0.0, Kd_x=0.1, 
-                                Kp_y=1.5, Ki_y=0.0, Kd_y=0.1,
-                                Kp_theta=2.0, Ki_theta=0.0, Kd_theta=0.1,
+        # self.pid = PIDController(Kp_x=1.0, Ki_x=0.0, Kd_x=0.1, 
+        #                         Kp_y=1.5, Ki_y=0.0, Kd_y=0.1,
+        #                         Kp_theta=2.0, Ki_theta=0.0, Kd_theta=0.1,
+        #                         vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0), wz_range=(-2, 2),
+        #                         integral_limit=1.0, deadband=0.01)
+        self.pid = PIDController(Kp_x=PID_X[0], Ki_x=PID_X[1], Kd_x=PID_X[2],
+                                Kp_y=PID_Y[0], Ki_y=PID_Y[1], Kd_y=PID_Y[2],
+                                Kp_theta=PID_THETA[0], Ki_theta=PID_THETA[1], Kd_theta=PID_THETA[2],
                                 vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0), wz_range=(-2, 2),
-                                integral_limit=1.0, deadband=0.01)
+                                integral_limit=1.0, deadband_xytheta=(0.05, 0.05, 3*math.pi/180))
 
     def robot_pose_callback(self, msg):
         """ Xử lý dữ liệu Pose cho robot """
@@ -391,9 +412,6 @@ class RobotController:
             pass
 
     def process_movement(self, exp_time_start, last_time):
-        if self.mission_complete:
-            return None, None
-
         if self.target_pose is None:
             self.dump_run(exp_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
             return None, None
@@ -401,32 +419,20 @@ class RobotController:
         if self.robot_pose is None or self.target_pose is None:
             rospy.logwarn("No pose message received.")
             return None, None
-        
-        # distance, desired_yaw = self.calculate_relative_position(self.robot_pose, self.target_pose)
-        # if distance is None or desired_yaw is None:
-        #     return None, None
-        
-        # if distance < TRANS_THRES:
-        #     rospy.loginfo("Target reached. Stopping robot.")
-        #     self.mission_complete = True
-        #     self.send_udp_message(0.0, 0.0)
-        #     # self.lay_down_robot()
-        #     return None, None
-        
-        # if abs(desired_yaw) > ROT_THRES:
-        #     forward_velocity = 0.0
-        #     angular_velocity = max(min(desired_yaw, 0.5), -0.5)
-        # else:
-        #     forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1) * LIN_VEL_SCALING   # lim in range [0.1, 0.4]
-        #     angular_velocity = max(min(desired_yaw, 0.5), -0.5) * ROT_VEL_SCALING   # lim in range [-0.5, 0.5]
 
-        #     # forward_velocity = max(min(0.4 - abs(desired_yaw) * 0.8, 0.4), 0.1)   # lim in range [0.1, 0.4]
-        #     # angular_velocity = max(min(desired_yaw, 0.5), -0.5)   # lim in range [-0.5, 0.5]
         print('\n-----')
         delta_t = time.time() - last_time
         robot_pos = [self.robot_pose.pose.position.x, self.robot_pose.pose.position.y]
         robot_quat = [self.robot_pose.pose.orientation.x, self.robot_pose.pose.orientation.y, self.robot_pose.pose.orientation.z, self.robot_pose.pose.orientation.w]
         goal_pos = [self.target_pose.pose.position.x, self.target_pose.pose.position.y]
+        dis_xy = math.sqrt((robot_pos[0] - goal_pos[0])**2 + (robot_pos[1] - goal_pos[1])**2)
+        if dis_xy <= DIS_XY_THRES:
+            self.mission_complete = True
+            self.send_udp_message(0.0, 0.0, 0.0)
+            self.publish_velocity(0.0, 0.0, 0.0)
+            return None, None
+
+        # print(f'real hz = {1/(time.time() - last_time):.3f}')
         vx, vy, wz = self.pid.calculate(robot_pos, goal_pos, robot_quat, delta_t)
         # print('forward_velocity: ', forward_velocity)
         print(f'    vx: {vx}, vy: {vy}, wz: {wz*180/np.pi:.3f}')
