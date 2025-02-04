@@ -222,6 +222,10 @@ class RobotController:
                                 vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0), wz_range=(-2, 2),
                                 integral_limit=1.0, deadband_xytheta=(0.05, 0.05, 3*math.pi/180))
 
+        # active zone
+        self.active_zone_x = [0.0, 3.5]
+        self.active_zone_y = [-2.0, 0.5]
+
     def robot_pose_callback(self, msg):
         """ Xử lý dữ liệu Pose cho robot """
         self.robot_pose = copy.deepcopy(msg)
@@ -403,15 +407,32 @@ class RobotController:
         self.udp.SetSend(self.cmd)
         self.udp.Send()
 
-    def dump_run(self, time_start, time_run, vel):
-        if time.time() - time_start < time_run:
-            self.send_udp_message(vel, 0.0, 0.0)
-            self.publish_velocity(vel, 0.0, 0.0)
+    def dump_run(self, time_start, time_run, vel_max):
+        delta_t = time.time() - time_start
+        if delta_t < time_run:
+            vx = vel_max/(delta_t)
+            vx = max(min(vx, vel_max), 0.1)
+            self.send_udp_message(vx, 0.0, 0.0)
+            self.publish_velocity(vx, 0.0, 0.0)
             print('Dump run')
         else:
             pass
 
     def process_movement(self, exp_time_start, last_time):
+        # check if in active zone
+        # if self.robot_pose is None or \
+        if  self.robot_pose.pose.position.x < self.active_zone_x[0] or \
+            self.robot_pose.pose.position.x > self.active_zone_x[1] or \
+            self.robot_pose.pose.position.y < self.active_zone_y[0] or \
+            self.robot_pose.pose.position.y > self.active_zone_y[1]:
+            global_printer.print_red(f"Robot out of active zone. Robot xy: {self.robot_pose.pose.position.x}, {self.robot_pose.pose.position.y}")
+            start_pub_time = time.time()
+            while time.time() - start_pub_time < 3.0:
+                self.send_udp_message(0.0, 0.0, 0.0)
+                self.publish_velocity(0.0, 0.0, 0.0)
+            self.mission_complete = True
+            return None, None
+
         if self.target_pose is None:
             self.dump_run(exp_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
             # self.target_pose = PoseStamped()
