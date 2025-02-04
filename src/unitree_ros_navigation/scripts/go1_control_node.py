@@ -28,6 +28,7 @@ ROT_THRES = math.radians(30)  # 20 degrees in radians
 
 ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
+TRIGGER_DUMP_RUN_TOPIC = "/mocap_pose_topic/chip_star_pose"
 LIN_VEL_SCALING = 3.0
 ROT_VEL_SCALING = 2.0
 GAIT_TYPE = 2
@@ -44,7 +45,7 @@ PID_THETA = [2.0, 0.0, 0.1]
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
 DEBUG = False
-DUMP_RUN_TIME = 2.0
+DUMP_RUN_TIME = 1.0
 DUMP_RUN_VEL = 3.0
 
 NO_CONTROL = False
@@ -195,11 +196,14 @@ class RobotController:
         self.cmd = sdk.HighCmd()
         self.udp.InitCmdData(self.cmd)
         self.robot_pose:PoseStamped = None
-        self.target_pose = None
+        self.target_pose:PoseStamped = None
+        self.trigger_dump_run = False
+        self.already_trigger_dump_run = False
 
         self.velocity_pub = rospy.Publisher("/check/cmd_vel", Twist, queue_size=10)
         self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, PoseStamped, self.robot_pose_callback)
         self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
+        self.trigger_dump_run_sub = rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback)
         self.new_robot_pose_pub = rospy.Publisher("/check/robot_pose", PoseStamped, queue_size=10)
         self.new_target_pose_pub = rospy.Publisher("/check/target_pose", PoseStamped, queue_size=10)
 
@@ -225,6 +229,9 @@ class RobotController:
         # active zone
         self.active_zone_x = [0.0, 3.5]
         self.active_zone_y = [-2.0, 0.5]
+
+        self.dump_run_trigger_zone_x = [-2.0, 3.5]
+        self.dump_run_trigger_zone_y = [-2.0, 0.5]
 
     def robot_pose_callback(self, msg):
         """ Xử lý dữ liệu Pose cho robot """
@@ -272,6 +279,24 @@ class RobotController:
             self.target_pose.pose.orientation.y = q_new[1]
             self.target_pose.pose.orientation.z = q_new[2]
             self.target_pose.pose.orientation.w = q_new[3]
+
+    def trigger_pose_callback(self, msg: PoseStamped):
+        """ Xử lý dữ liệu Pose cho mục tiêu """
+        object_pose = copy.deepcopy(msg)
+        if MODIFY_Z_UP:
+            # Chuyển đổi vị trí
+            object_pose_x = object_pose.pose.position.x
+            object_pose_y = -msg.pose.position.z
+            object_pose_z = msg.pose.position.y
+            if object_pose_x >= self.dump_run_trigger_zone_x[0] and object_pose_x <= self.dump_run_trigger_zone_x[1] and \
+                object_pose_y >= self.dump_run_trigger_zone_y[0] and object_pose_y <= self.dump_run_trigger_zone_y[1]:
+                if not self.already_trigger_dump_run:
+                    self.trigger_dump_run = True
+                    self.dump_run_time_start = time.time()
+                    global_printer.print_green('Trigger dump run, becareful !')
+                    self.already_trigger_dump_run = True
+            else:
+                self.trigger_dump_run = False
 
     def is_pose_timeout(self):
         if time.time() - self.last_robot_pose_time > MSG_TIMEOUT:
@@ -433,15 +458,14 @@ class RobotController:
             self.mission_complete = True
             return None, None
 
-        if self.target_pose is None:
-            self.dump_run(exp_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
+        if self.target_pose is None and self.trigger_dump_run==True:
+            self.dump_run(self.dump_run_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
             # self.target_pose = PoseStamped()
             # self.target_pose.pose.position.x = 2.0
             # self.target_pose.pose.position.y = -1.0
             # self.target_pose.pose.position.z = 0.1
             # self.target_pose.pose.orientation.z = 1.0
             return None, None
-        print(f'1 robot: {self.robot_pose.pose.position.x}, goal: {self.target_pose.pose.position.x}')
         if self.robot_pose is None or self.target_pose is None:
             rospy.logwarn("No pose message received.")
             return None, None
@@ -502,7 +526,7 @@ class RobotController:
 
         global_printer.print_blue('===================================================', background=True)
         global_printer.print_blue('ARE YOU READY ? Press Enter to start the mission...', background=True)
-        global_printer.print_blue('===================================================', background=True); input()
+        global_printer.print_blue('===================================================', background=True); input(); input()
 
         while not rospy.is_shutdown():
             if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - exp_time_start):.2f}")
