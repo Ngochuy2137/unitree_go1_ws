@@ -31,21 +31,21 @@ TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/ch
 LIN_VEL_SCALING = 3.0
 ROT_VEL_SCALING = 2.0
 GAIT_TYPE = 2
-DIS_XY_THRES = 0.2
+DIS_XY_THRES = 0.05
 
 # PID_X = [2.5, 0.0, 0.1]
 # PID_Y = [1.5, 0.0, 0.1]
 # PID_THETA = [2.0, 0.0, 0.1]
 
-PID_X = [2.5, 0.0, 0.1]
-PID_Y = [2.5, 0.0, 0.1]
+PID_X = [3.5, 0.01, 0.05]
+PID_Y = [3.5, 0.01, 0.05]
 PID_THETA = [2.0, 0.0, 0.1]
 
 MSG_TIMEOUT = 0.2
 MODIFY_Z_UP = True
 DEBUG = False
-DUMP_RUN_TIME = 0.2
-DUMP_RUN_VEL = 2.0
+DUMP_RUN_TIME = 2.0
+DUMP_RUN_VEL = 3.0
 
 NO_CONTROL = False
 
@@ -404,9 +404,9 @@ class RobotController:
         self.udp.Send()
 
     def dump_run(self, time_start, time_run, vel):
-        if time.time() - time_start < DUMP_RUN_TIME:
-            self.send_udp_message(DUMP_RUN_VEL, 0.0, 0.0)
-            self.publish_velocity(DUMP_RUN_VEL, 0.0, 0.0)
+        if time.time() - time_start < time_run:
+            self.send_udp_message(vel, 0.0, 0.0)
+            self.publish_velocity(vel, 0.0, 0.0)
             print('Dump run')
         else:
             pass
@@ -414,13 +414,18 @@ class RobotController:
     def process_movement(self, exp_time_start, last_time):
         if self.target_pose is None:
             self.dump_run(exp_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
+            # self.target_pose = PoseStamped()
+            # self.target_pose.pose.position.x = 2.0
+            # self.target_pose.pose.position.y = -1.0
+            # self.target_pose.pose.position.z = 0.1
+            # self.target_pose.pose.orientation.z = 1.0
             return None, None
-
+        print(f'1 robot: {self.robot_pose.pose.position.x}, goal: {self.target_pose.pose.position.x}')
         if self.robot_pose is None or self.target_pose is None:
             rospy.logwarn("No pose message received.")
             return None, None
 
-        print('\n-----')
+        # print('\n-----')
         delta_t = time.time() - last_time
         robot_pos = [self.robot_pose.pose.position.x, self.robot_pose.pose.position.y]
         robot_quat = [self.robot_pose.pose.orientation.x, self.robot_pose.pose.orientation.y, self.robot_pose.pose.orientation.z, self.robot_pose.pose.orientation.w]
@@ -435,7 +440,7 @@ class RobotController:
         # print(f'real hz = {1/(time.time() - last_time):.3f}')
         vx, vy, wz = self.pid.calculate(robot_pos, goal_pos, robot_quat, delta_t)
         # print('forward_velocity: ', forward_velocity)
-        print(f'    vx: {vx}, vy: {vy}, wz: {wz*180/np.pi:.3f}')
+        # print(f'    vx: {vx}, vy: {vy}, wz: {wz*180/np.pi:.3f}')
         self.send_udp_message(vx, vy, wz)
         self.publish_velocity(vx, vy, wz)
         # return just for debugging
@@ -470,9 +475,14 @@ class RobotController:
             # sleep to wait for robot pose
             rate.sleep()
 
-        robot_pos_start = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
 
         last_time = time.time()
+        got_robot_start_pose = False
+
+        global_printer.print_blue('===================================================', background=True)
+        global_printer.print_blue('ARE YOU READY ? Press Enter to start the mission...', background=True)
+        global_printer.print_blue('===================================================', background=True); input()
+
         while not rospy.is_shutdown():
             if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - exp_time_start):.2f}")
             if DEBUG: self.receive_udp_robot_state()
@@ -481,14 +491,22 @@ class RobotController:
             
             # just for debugging
             if vx is not None and vy is not None:
-                vel_list.append(vx)
-                time_list.append(time.time())
+                if self.target_pose is not None:
+                    dis_xy = math.sqrt((self.robot_pose.pose.position.x - self.target_pose.pose.position.x)**2 + (self.robot_pose.pose.position.y - self.target_pose.pose.position.y)**2)
+                    if dis_xy <=1.0:
+                        vel_list.append(vx)
+                        time_list.append(time.time())
+                        if not got_robot_start_pose:
+                            robot_pos_start_cons = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
+                            time_start_cons = time.time()
+                            got_robot_start_pose = True
+
             if self.mission_complete:
                 print("\n-------- Mission Complete --------")
                 robot_pos_stop = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
-                time_run = time.time() - exp_time_start
+                time_run = time.time() - time_start_cons
                 print(f"Time run: {time_run:.6f} s")
-                dis_run = np.linalg.norm(robot_pos_start - robot_pos_stop)  # calculate distance
+                dis_run = np.linalg.norm(robot_pos_start_cons - robot_pos_stop)  # calculate distance
                 print(f'Dis run: {dis_run}')
                 print(f'Real avg vel: {dis_run / (time_run):.6f} m/s')
                 print(f"Command avg velocity: {self.cal_avg_vel(vel_list, time_list):.2f} m/s")
