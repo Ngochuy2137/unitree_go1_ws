@@ -20,7 +20,7 @@ from python_utils import printer
 global_printer = printer.Printer()
 
 HIGHLEVEL = 0xee
-RATE = 100  # Loop rate
+RATE = 50  # Loop rate
 TRANS_THRES = 0.2  # Meters
 ROT_THRES = math.radians(30)  # 20 degrees in radians
 # ROBOT_TF_FRAME = "dog_frame"
@@ -38,8 +38,8 @@ DIS_XY_THRES = 0.05
 # PID_Y = [1.5, 0.0, 0.1]
 # PID_THETA = [2.0, 0.0, 0.1]
 
-PID_X = [3.5, 0.01, 0.05]
-PID_Y = [3.5, 0.01, 0.05]
+PID_X = [4, 0.01, 0.05]
+PID_Y = [4, 0.01, 0.05]
 PID_THETA = [2.0, 0.0, 0.1]
 
 MSG_TIMEOUT = 0.2
@@ -420,6 +420,7 @@ class RobotController:
         vx, vy, wz = self.pid.calculate(robot_pos, goal_pos, robot_quat, delta_t)
         # print('forward_velocity: ', forward_velocity)
         # print(f'    vx: {vx}, vy: {vy}, wz: {wz*180/np.pi:.3f}')
+        wz = 0
         self.send_udp_message(vx, vy, wz)
         self.publish_velocity(vx, vy, wz)
         # return just for debugging
