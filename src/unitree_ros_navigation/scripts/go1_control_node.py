@@ -29,7 +29,7 @@ ROT_THRES = math.radians(30)  # 20 degrees in radians
 ROBOT_POSE_TOPIC = "/mocap_pose_topic/dog_pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
 TRIGGER_DUMP_RUN_TOPIC = "/mocap_pose_topic/chip_star_pose"
-LIN_VEL_SCALING = 3.0
+LIN_VEL_SCALING = 2.0
 ROT_VEL_SCALING = 2.0
 GAIT_TYPE = 2
 DIS_XY_THRES = 0.05
@@ -142,6 +142,9 @@ class PIDController:
         wz = (self.Kp_theta * error_theta) + (self.Ki_theta * self.integral_theta) + (self.Kd_theta * derivative_theta)
 
         # ===== Giới hạn vận tốc =====
+        # vx = vx**LIN_VEL_SCALING
+        # vy = vy**LIN_VEL_SCALING
+        # wz = wz**ROT_VEL_SCALING
         vx = max(min(vx, self.vx_range[1]), self.vx_range[0])
         vy = max(min(vy, self.vy_range[1]), self.vy_range[0])
         wz = max(min(wz, self.wz_range[1]), self.wz_range[0])
@@ -326,63 +329,6 @@ class RobotController:
         _, _, yaw = euler_from_quaternion(quaternion)  # Lấy yaw
         return yaw
 
-    def calculate_relative_position(self, robot_pose: PoseStamped, target_pose: PoseStamped):
-        # Lấy tọa độ x, y từ PoseStamped
-        x_r, y_r = robot_pose.pose.position.x, robot_pose.pose.position.y
-        x_t, y_t = target_pose.pose.position.x, target_pose.pose.position.y
-
-        if not self.got_first_target_event:
-            self.event_robot_pose = np.array([robot_pose.pose.position.x, robot_pose.pose.position.y, robot_pose.pose.position.z])
-            self.event_time = time.time()
-            # log warn
-            rospy.logwarn("Event robot pose received.")
-            self.got_first_target_event = True
-
-        # check if robot pose is different from the event pose
-        if self.event_robot_pose is not None:
-            robot_pose_np = np.array([robot_pose.pose.position.x, robot_pose.pose.position.y, robot_pose.pose.position.z])
-            equal = np.allclose(self.event_robot_pose, robot_pose_np, atol=0.001)
-            if not equal:
-                time_delay = time.time() - self.event_time
-                global_printer.print_blue(f"Reaction delay: {time_delay} s")
-                if target_pose.header.frame_id is str:
-                    fly_time_start = float(target_pose.header.frame_id)
-                    global_printer.print_blue(f'Preparation time: {(rospy.Time.now().to_nsec() - fly_time_start) / 1e9}')
-                global_printer.print_green(f"Robot moving. Reaction delay: {time_delay} s")
-                # shutdown_node()
-                self.event_robot_pose = None
-            else:
-                global_printer.print_yellow("Robot standing still")
-
-
-        if DEBUG: print(f'robot_pose x, y: {x_r}, {y_r}')
-        if DEBUG: print(f'target_pose x, y: {x_t}, {y_t}')
-
-        # Lấy góc yaw của robot trong world
-        yaw_robot = self.get_yaw_from_pose(robot_pose)
-
-        # Tính dx, dy trong world
-        dx_world = x_t - x_r
-        dy_world = y_t - y_r
-
-        if DEBUG: print(f'dx (world): {dx_world}, dy (world): {dy_world}')
-
-        # Chuyển về hệ tọa độ của robot bằng cách xoay ngược lại
-        R_inv = np.array([[math.cos(yaw_robot), math.sin(yaw_robot)],
-                        [-math.sin(yaw_robot), math.cos(yaw_robot)]])  # R^-1 = R^T với ma trận quay
-
-        dx_robot, dy_robot = np.dot(R_inv, np.array([dx_world, dy_world]))
-
-        if DEBUG: print(f'dx (robot): {dx_robot}, dy (robot): {dy_robot}')
-
-        # Tính khoảng cách và góc yaw mong muốn trong hệ robot
-        distance = math.sqrt(dx_robot ** 2 + dy_robot ** 2)
-        desired_yaw = math.atan2(dy_robot, dx_robot)
-
-        if DEBUG: rospy.loginfo(f"Distance: {distance:.2f} m, Desired yaw: {math.degrees(desired_yaw):.2f}°")
-        return distance, desired_yaw
-
-
     def send_udp_message(self, vx, vy, wz):
         if NO_CONTROL:
             return
@@ -408,18 +354,6 @@ class RobotController:
             print(f"Robot State: {a}")
         else:
             print("No response from robot!")
-
-    # def get_robot_state(self):
-    #     state = sdk.HighState()
-    #     self.udp.GetRecv(state)
-    #     if state:
-    #         # In ra các thông tin trạng thái cần thiết
-    #         print('state:', state)
-    #         print(f"Roll: {state.imu.rpy[0]:.2f}, Pitch: {state.imu.rpy[1]:.2f}, Yaw: {state.imu.rpy[2]:.2f}")
-    #         print(f"Forward Speed: {state.velocity} m/s")
-    #         # print(f"Battery Voltage: {state.battery:.2f} V")
-    #     else:
-    #         print("No response from robot!")
 
     def lay_down_robot(self):
         rospy.loginfo("Laying down the robot...")
