@@ -38,7 +38,7 @@ DIS_XY_THRES = 0.05
 # PID_Y = [1.5, 0.0, 0.1]
 # PID_THETA = [2.0, 0.0, 0.1]
 
-PID_X = [4, 0.01, 0.05]
+PID_X = [5, 0.01, 0.05]
 PID_Y = [4, 0.01, 0.05]
 PID_THETA = [2.0, 0.0, 0.1]
 
@@ -235,6 +235,14 @@ class RobotController:
 
         self.dump_run_trigger_zone_x = [-2.0, 3.5]
         self.dump_run_trigger_zone_y = [-2.0, 0.5]
+
+        self.tc1 = None # 1st seen object (trigger) time
+        self.pos_tc1 = None # robot pos corresponding to tc1
+        self.tc2 = None # robot 1st move
+        self.tc3 = []       # impact point sub time 
+        self.pos_tc3 = []   # impact point pos corresponding to tc3
+        self.tc34 = []       # predicted impact time
+
 
     def robot_pose_callback(self, msg):
         """ Xử lý dữ liệu Pose cho robot """
