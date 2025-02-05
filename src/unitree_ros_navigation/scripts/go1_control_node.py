@@ -38,7 +38,7 @@ DIS_XY_THRES = 0.05
 # PID_Y = [1.5, 0.0, 0.1]
 # PID_THETA = [2.0, 0.0, 0.1]
 
-PID_X = [5, 0.01, 0.05]
+PID_X = [7, 0.01, 0.05]
 PID_Y = [4, 0.01, 0.05]
 PID_THETA = [2.0, 0.0, 0.1]
 
@@ -233,7 +233,7 @@ class RobotController:
         self.active_zone_x = [0.0, 3.5]
         self.active_zone_y = [-2.0, 0.5]
 
-        self.dump_run_trigger_zone_x = [-2.0, 3.5]
+        self.dump_run_trigger_zone_x = [-2.5, 3.5]
         self.dump_run_trigger_zone_y = [-2.0, 0.5]
 
         self.tc1 = None # 1st seen object (trigger) time
@@ -377,7 +377,7 @@ class RobotController:
     def dump_run(self, time_start, time_run, vel_max):
         delta_t = time.time() - time_start
         if delta_t < time_run:
-            vx = vel_max/(delta_t)
+            vx = vel_max/(delta_t*0.5)
             vx = max(min(vx, vel_max), 0.1)
             self.send_udp_message(vx, 0.0, 0.0)
             self.publish_velocity(vx, 0.0, 0.0)
