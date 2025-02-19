@@ -306,6 +306,11 @@ class RobotController:
                     self.dump_run_time_start = time.time()
                     global_printer.print_green('Trigger dump run, becareful !')
                     self.already_trigger_dump_run = True
+                    self.dump_run(self.dump_run_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
+                    print('TRIGGER POS: ', object_pose_x, object_pose_y, object_pose_z)
+                    if object_pose_x - self.dump_run_trigger_zone_x[0] > 0.2:
+                        global_printer.print_red('Trigger moment is too late, becareful !')
+                    shutdown_node()
             else:
                 self.trigger_dump_run = False
 
@@ -381,7 +386,7 @@ class RobotController:
             vx = max(min(vx, vel_max), 0.1)
             self.send_udp_message(vx, 0.0, 0.0)
             self.publish_velocity(vx, 0.0, 0.0)
-            print('Dump run')
+            # print('Dump run')
         else:
             pass
 
@@ -409,7 +414,7 @@ class RobotController:
             # self.target_pose.pose.orientation.z = 1.0
             return None, None
         if self.robot_pose is None or self.target_pose is None:
-            rospy.logwarn("No pose message received.")
+            # rospy.logwarn("No pose message received.")
             return None, None
 
         # print('\n-----')
@@ -470,6 +475,8 @@ class RobotController:
         global_printer.print_blue('===================================================', background=True)
         global_printer.print_blue('ARE YOU READY ? Press Enter to start the mission...', background=True)
         global_printer.print_blue('===================================================', background=True); input(); input()
+
+        print('Mission start !')
 
         while not rospy.is_shutdown():
             if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - exp_time_start):.2f}")
