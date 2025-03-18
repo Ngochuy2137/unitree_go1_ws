@@ -7,6 +7,7 @@ import time
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
 from gazebo_msgs.msg import ModelStates
+from nav_msgs.msg import Odometry
 
 # sys.path.append('/home/huynn/huynn_ws/robot_catching_ws/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/arm64')
 # import robot_interface as sdk
@@ -25,7 +26,7 @@ ROT_THRES = math.radians(30)  # 20 degrees in radians
 # ROBOT_TF_FRAME = "dog_frame"
 # TARGET_TF_FRAME = 'chip_star_frame' # 'chip_star_frame' 'pred_impact_point_frame'
 
-ROBOT_POSE_TOPIC = "/gazebo/model_states"
+ROBOT_POSE_TOPIC = "unitree_go1/pose"
 TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
 TRIGGER_DUMP_RUN_TOPIC = "/mocap_pose_topic/chip_star_pose"
 LIN_VEL_SCALING = 2.0
@@ -211,7 +212,7 @@ class RobotController:
         self.already_trigger_dump_run = False
 
         self.velocity_pub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
-        self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, ModelStates, self.robot_pose_callback)
+        self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, Odometry, self.robot_pose_callback)
         self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
         self.trigger_dump_run_sub = rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback)
         self.new_robot_pose_pub = rospy.Publisher("/check/robot_pose", PoseStamped, queue_size=10)
@@ -251,21 +252,21 @@ class RobotController:
         self.tc34 = []       # predicted impact time
 
 
-    def robot_pose_callback(self, msg: ModelStates):
+    def robot_pose_callback(self, msg: Odometry):
         """ Xử lý dữ liệu Pose cho robot """
         cur_pose = copy.deepcopy(msg)
         self.robot_pose = PoseStamped()
         self.robot_pose.header.frame_id = 'world'
         self.robot_pose.header.stamp = rospy.Time.now()
-        self.robot_pose.pose = cur_pose.pose[2]
+        self.robot_pose.pose = cur_pose.pose.pose
         
         if MODIFY_Z_UP_ROBOT_POSE:
             # Chuyển đổi vị trí
-            self.robot_pose.pose.position.y = -msg.pose.position.z
-            self.robot_pose.pose.position.z = msg.pose.position.y
+            self.robot_pose.pose.position.y = -cur_pose.pose.pose.position.z
+            self.robot_pose.pose.position.z = cur_pose.pose.pose.position.y
 
             # Lấy quaternion gốc
-            q_orig = msg.pose.orientation
+            q_orig = cur_pose.pose.pose.orientation
             q_new = [q_orig.x, -q_orig.z, q_orig.y, q_orig.w]  # Hoán đổi các trục phù hợp
 
             # Chuẩn hóa quaternion để tránh sai số
