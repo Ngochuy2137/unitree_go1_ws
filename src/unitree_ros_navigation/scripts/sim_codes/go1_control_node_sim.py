@@ -42,15 +42,18 @@ PID_Y = [4, 0.01, 0.05]
 PID_THETA = [2.0, 0.0, 0.1]
 
 MSG_TIMEOUT = 0.2
-MODIFY_Z_UP = False
+# MODIFY_Z_UP = False
+MODIFY_Z_UP_PREDICT = True
+MODIFY_Z_UP_ROBOT_POSE = False
+
 DEBUG = False
 DUMP_RUN_TIME = 0.5
 DUMP_RUN_VEL = 2.0
 VXRANGE = [-0.5, 0.5]
 VYRANGE = [-0.5, 0.5]
 WZRANGE = [-1.0, 1.0]
-ACTIVE_ZONE_X = [-0.5, 3.5]
-ACTIVE_ZONE_Y = [-2.0, 2.0]
+ACTIVE_ZONE_X = [-10, 10]
+ACTIVE_ZONE_Y = [-10, 10]
 
 NO_CONTROL = False
 
@@ -256,7 +259,7 @@ class RobotController:
         self.robot_pose.header.stamp = rospy.Time.now()
         self.robot_pose.pose = cur_pose.pose[2]
         
-        if MODIFY_Z_UP:
+        if MODIFY_Z_UP_ROBOT_POSE:
             # Chuyển đổi vị trí
             self.robot_pose.pose.position.y = -msg.pose.position.z
             self.robot_pose.pose.position.z = msg.pose.position.y
@@ -281,7 +284,7 @@ class RobotController:
         # time_ros_now = rospy.Time.now().to_sec()
         # time_diff = time_ros_now - time_msg
         # print(f'time_diff: {time_diff}')
-        if MODIFY_Z_UP:
+        if MODIFY_Z_UP_PREDICT:
             # Chuyển đổi vị trí
             self.target_pose.pose.position.y = -msg.pose.position.z
             self.target_pose.pose.position.z = msg.pose.position.y
@@ -298,13 +301,14 @@ class RobotController:
             self.target_pose.pose.orientation.y = q_new[1]
             self.target_pose.pose.orientation.z = q_new[2]
             self.target_pose.pose.orientation.w = q_new[3]
+        global_printer.print_yellow(f'New target pose received: {self.target_pose.pose.position.x}, {self.target_pose.pose.position.y}')
 
     def trigger_pose_callback(self, msg: PoseStamped):
         """ Xử lý dữ liệu Pose cho mục tiêu """
         if not self.already_trigger_dump_run:
         
             object_pose = copy.deepcopy(msg)
-            if MODIFY_Z_UP:
+            if MODIFY_Z_UP_PREDICT:
                 # Chuyển đổi vị trí
                 object_pose_x = object_pose.pose.position.x
                 object_pose_y = -msg.pose.position.z
@@ -450,7 +454,7 @@ class RobotController:
         wz = 0
         # self.send_udp_message(vx, vy, wz)
         self.publish_velocity(vx, vy, wz)
-        print('check vx, vy: ', vx, vy)
+        # print('check vx, vy: ', vx, vy)
 
         # return just for debugging
         return vx, vy
