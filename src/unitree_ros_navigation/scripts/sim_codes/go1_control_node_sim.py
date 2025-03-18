@@ -48,8 +48,8 @@ MODIFY_Z_UP_PREDICT = True
 MODIFY_Z_UP_ROBOT_POSE = False
 
 DEBUG = False
-DUMP_RUN_TIME = 0.5
-DUMP_RUN_VEL = 2.0
+DUMP_RUN_TIME = 0.02
+DUMP_RUN_VEL = 0.3
 VXRANGE = [-0.5, 0.5]
 VYRANGE = [-0.5, 0.5]
 WZRANGE = [-1.0, 1.0]
@@ -200,7 +200,7 @@ class RobotController:
     def __init__(self, robot_ip="192.168.123.161"):
         rospy.init_node('robot_pid_high_level_controller', anonymous=True)
         self.global_printer = printer.Printer()
-        self.tf_listener = tf.TransformListener()
+        # self.tf_listener = tf.TransformListener()
         self.mission_complete = False
         self.robot_ip = robot_ip
         # self.udp = sdk.UDP(HIGHLEVEL, 8080, self.robot_ip, 8082)
@@ -214,7 +214,7 @@ class RobotController:
         self.velocity_pub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
         self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, Odometry, self.robot_pose_callback)
         self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
-        self.trigger_dump_run_sub = rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback)
+        self.trigger_dump_run_sub = rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback, queue_size=10)
         self.new_robot_pose_pub = rospy.Publisher("/check/robot_pose", PoseStamped, queue_size=10)
         self.new_target_pose_pub = rospy.Publisher("/check/target_pose", PoseStamped, queue_size=10)
 
