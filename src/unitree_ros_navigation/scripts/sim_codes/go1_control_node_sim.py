@@ -209,13 +209,13 @@ class RobotController:
         self.robot_pose:PoseStamped = None
         self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, Odometry, self.robot_pose_callback)
 
-        self.target_pose:PoseStamped = None
-        self.got_first_target_event = False
-        self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
-
         self.trigger_dump_run = False
         self.already_trigger_dump_run = False
         self.trigger_dump_run_sub = rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback, queue_size=10)
+
+        self.target_pose:PoseStamped = None
+        self.got_first_target_event = False
+        self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
 
         self.velocity_pub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
         self.new_robot_pose_pub = rospy.Publisher("/check/robot_pose", PoseStamped, queue_size=10)
@@ -285,7 +285,7 @@ class RobotController:
         self.target_pose = copy.deepcopy(msg)
         if not self.got_first_target_event:
             dummy_run_time = rospy.Time.now().to_sec() - self.dump_run_time_start
-            global_printer.print_red(f"----------- CHECK dummy run time: {dummy_run_time} -----------")
+            global_printer.print_blue(f"----------- CHECK dummy run time: {dummy_run_time} -----------", background=True)
             self.got_first_target_event = True
         # time_msg = msg.header.stamp.to_sec()
         # time_ros_now = rospy.Time.now().to_sec()
