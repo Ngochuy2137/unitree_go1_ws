@@ -207,23 +207,25 @@ class RobotController:
         # self.cmd = sdk.HighCmd()
         # self.udp.InitCmdData(self.cmd)
         self.robot_pose:PoseStamped = None
+        self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, Odometry, self.robot_pose_callback)
+
         self.target_pose:PoseStamped = None
+        self.got_first_target_event = False
+        self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
+
         self.trigger_dump_run = False
         self.already_trigger_dump_run = False
+        self.trigger_dump_run_sub = rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback, queue_size=10)
 
         self.velocity_pub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
-        self.robot_pose_sub = rospy.Subscriber(ROBOT_POSE_TOPIC, Odometry, self.robot_pose_callback)
-        self.target_pose_sub = rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
-        self.trigger_dump_run_sub = rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback, queue_size=10)
         self.new_robot_pose_pub = rospy.Publisher("/check/robot_pose", PoseStamped, queue_size=10)
         self.new_target_pose_pub = rospy.Publisher("/check/target_pose", PoseStamped, queue_size=10)
 
-        self.last_robot_pose_time = time.time()
-        self.last_target_pose_time = time.time()
+        self.last_robot_pose_time = rospy.Time.now().to_sec()
+        self.last_target_pose_time = rospy.Time.now().to_sec()
 
         self.event_robot_pose = None
         self.event_time = None
-        self.got_first_target_event = False
 
         # self.pid = PIDController(Kp=KP, Ki=KI, Kd=KD, vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0))
         # self.pid = PIDController(Kp_x=1.0, Ki_x=0.0, Kd_x=0.1, 
@@ -281,6 +283,10 @@ class RobotController:
     def target_pose_callback(self, msg: PoseStamped):
         """ Xử lý dữ liệu Pose cho mục tiêu """
         self.target_pose = copy.deepcopy(msg)
+        if not self.got_first_target_event:
+            dummy_run_time = rospy.Time.now().to_sec() - self.dump_run_time_start
+            global_printer.print_red(f"----------- CHECK dummy run time: {dummy_run_time} -----------")
+            self.got_first_target_event = True
         # time_msg = msg.header.stamp.to_sec()
         # time_ros_now = rospy.Time.now().to_sec()
         # time_diff = time_ros_now - time_msg
@@ -321,7 +327,7 @@ class RobotController:
                 object_pose_y >= self.dump_run_trigger_zone_y[0] and object_pose_y <= self.dump_run_trigger_zone_y[1]:
 
                 self.trigger_dump_run = True
-                self.dump_run_time_start = time.time()
+                self.dump_run_time_start = rospy.Time.now().to_sec()
                 global_printer.print_green('Trigger dump run, becareful !')
                 self.already_trigger_dump_run = True
                 self.dump_run(self.dump_run_time_start, DUMP_RUN_TIME, DUMP_RUN_VEL)
@@ -333,10 +339,10 @@ class RobotController:
                 self.trigger_dump_run = False
 
     def is_pose_timeout(self):
-        if time.time() - self.last_robot_pose_time > MSG_TIMEOUT:
+        if rospy.Time.now().to_sec() - self.last_robot_pose_time > MSG_TIMEOUT:
             self.robot_pose = None
             return True
-        if time.time() - self.last_target_pose_time > MSG_TIMEOUT:
+        if rospy.Time.now().to_sec() - self.last_target_pose_time > MSG_TIMEOUT:
             self.target_pose = None
             return True
         return False
@@ -398,7 +404,7 @@ class RobotController:
     #     self.udp.Send()
 
     def dump_run(self, time_start, time_run, vel_max):
-        delta_t = time.time() - time_start
+        delta_t = rospy.Time.now().to_sec() - time_start
         if delta_t < time_run:
             vx = vel_max/(delta_t*0.5)
             vx = max(min(vx, vel_max), 0.1)
@@ -416,8 +422,8 @@ class RobotController:
             self.robot_pose.pose.position.y < self.active_zone_y[0] or \
             self.robot_pose.pose.position.y > self.active_zone_y[1]:
             global_printer.print_red(f"Robot out of active zone. Robot xy: {self.robot_pose.pose.position.x}, {self.robot_pose.pose.position.y}")
-            start_pub_time = time.time()
-            while time.time() - start_pub_time < 3.0:
+            start_pub_time = rospy.Time.now().to_sec()
+            while rospy.Time.now().to_sec() - start_pub_time < 3.0:
                 # self.send_udp_message(0.0, 0.0, 0.0)
                 self.publish_velocity(0.0, 0.0, 0.0)
             self.mission_complete = True
@@ -437,7 +443,7 @@ class RobotController:
 
         # print('\n-----')
 
-        delta_t = time.time() - last_time
+        delta_t = rospy.Time.now().to_sec() - last_time
         robot_pos = [self.robot_pose.pose.position.x, self.robot_pose.pose.position.y]
         robot_quat = [self.robot_pose.pose.orientation.x, self.robot_pose.pose.orientation.y, self.robot_pose.pose.orientation.z, self.robot_pose.pose.orientation.w]
         goal_pos = [self.target_pose.pose.position.x, self.target_pose.pose.position.y]
@@ -448,7 +454,7 @@ class RobotController:
             self.publish_velocity(0.0, 0.0, 0.0)
             return None, None
 
-        # print(f'real hz = {1/(time.time() - last_time):.3f}')
+        # print(f'real hz = {1/(rospy.Time.now().to_sec() - last_time):.3f}')
         vx, vy, wz = self.pid.calculate(robot_pos, goal_pos, robot_quat, delta_t)
         # print('forward_velocity: ', forward_velocity)
         # print(f'    vx: {vx}, vy: {vy}, wz: {wz*180/np.pi:.3f}')
@@ -480,7 +486,7 @@ class RobotController:
     
     def run(self):
         rate = rospy.Rate(RATE)
-        exp_time_start = time.time()
+        exp_time_start = rospy.Time.now().to_sec()
         
         vel_list = []
         time_list = []
@@ -490,7 +496,7 @@ class RobotController:
             rate.sleep()
 
 
-        last_time = time.time()
+        last_time = rospy.Time.now().to_sec()
         got_robot_start_pose = False
 
         global_printer.print_blue('===================================================', background=True)
@@ -500,10 +506,10 @@ class RobotController:
         print('Mission start !')
 
         while not rospy.is_shutdown():
-            if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (time.time() - exp_time_start):.2f}")
+            if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (rospy.Time.now().to_sec() - exp_time_start):.2f}")
             # if DEBUG: self.receive_udp_robot_state()
             vx, vy = self.process_movement(exp_time_start, last_time=last_time)
-            last_time = time.time()
+            last_time = rospy.Time.now().to_sec()
             
             # just for debugging
             if vx is not None and vy is not None:
@@ -511,16 +517,16 @@ class RobotController:
                     dis_xy = math.sqrt((self.robot_pose.pose.position.x - self.target_pose.pose.position.x)**2 + (self.robot_pose.pose.position.y - self.target_pose.pose.position.y)**2)
                     if dis_xy <=1.0:
                         vel_list.append(vx)
-                        time_list.append(time.time())
+                        time_list.append(rospy.Time.now().to_sec())
                         if not got_robot_start_pose:
                             robot_pos_start_cons = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
-                            time_start_cons = time.time()
+                            time_start_cons = rospy.Time.now().to_sec()
                             got_robot_start_pose = True
 
             if self.mission_complete:
                 print("\n-------- Mission Complete --------")
                 robot_pos_stop = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
-                time_run = time.time() - time_start_cons
+                time_run = rospy.Time.now().to_sec() - time_start_cons
                 print(f"Time run: {time_run:.6f} s")
                 dis_run = np.linalg.norm(robot_pos_start_cons - robot_pos_stop)  # calculate distance
                 print(f'Dis run: {dis_run}')
