@@ -35,10 +35,10 @@ GAIT_TYPE = 2
 # PID_X = [2.5, 0.0, 0.1]
 # PID_Y = [1.5, 0.0, 0.1]
 # PID_THETA = [2.0, 0.0, 0.1]
-CTRL_TOLERANCE_XY = 0.1
+CTRL_TOLERANCE_XY = 0.05
 
-PID_X = [1.5, 0, 0]
-PID_Y = [1, 0, 0]
+PID_X = [2.5, 0, 0]
+PID_Y = [2.0, 0, 0]
 PID_THETA = [2.0, 0.0, 0.1]
 
 VXRANGE = [-1.0, 2.0]
@@ -54,7 +54,7 @@ MODIFY_Z_UP_ROBOT_POSE = False
 
 DEBUG = False
 DUMP_RUN_TIME = 1
-DUMP_RUN_VEL = 1
+DUMP_RUN_VEL = 0.3
 
 ACTIVE_ZONE_X = [-10000, 10000]
 ACTIVE_ZONE_Y = [-10000, 10000]
@@ -63,13 +63,15 @@ DUMMY_ZONE_X = [-2.5, 3.5]
 DUMMY_ZONE_Y = [-2.0, 0.5]
 
 NO_CONTROL = False
+MAX_CONTROL_TIME = 10 # seconds
 
 def shutdown_node():
     rospy.loginfo("FORCE Shutting down the node...")
     rospy.signal_shutdown("User requested shutdown")
 
 from std_srvs.srv import SetBool, SetBoolRequest, SetBoolResponse
-def send_robot_reached_goal_srv():
+def send_robot_reached_goal_srv(data):
+    global_printer.print_green("Sending robot reach goal signal to /robot_reached_goal_srv")
     try:
         rospy.wait_for_service('/robot_reached_goal_srv', timeout=2)
     except rospy.ROSException:
@@ -77,10 +79,10 @@ def send_robot_reached_goal_srv():
         return
     try:
         service_client = rospy.ServiceProxy('/robot_reached_goal_srv', SetBool)
-        request = SetBoolRequest(data=True)  # Gửi True/False
-        response = service_client(request)
+        request = SetBoolRequest(data=data)  # Gửi True/False
+        response = service_client(data=data)
 
-        rospy.loginfo(f"Response: success={response.success}, message='{response.message}'")
+        print(f"        Response: success={response.success}, message='{response.message}'")
 
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")
@@ -276,7 +278,10 @@ class RobotController:
         self.robot_pose = None
         self.reset_controller()
 
+        rospy.Service('/ask_if_robot_is_free_srv', SetBool, self.handle_if_is_free_ask)
+
     def reset_controller(self):
+        self.publish_velocity(0.0, 0.0, 0.0)
         self.pid.reset()
         
         self.trigger_dummy_run = False
@@ -292,6 +297,7 @@ class RobotController:
         self.first_goal_get_robot_pose = None
 
         self.mission_complete = False
+        self.robot_is_free = True
 
     def robot_pose_callback(self, msg: Odometry):
         """ Xử lý dữ liệu Pose cho robot """
@@ -318,7 +324,14 @@ class RobotController:
             self.robot_pose.pose.orientation.y = q_new[1]
             self.robot_pose.pose.orientation.z = q_new[2]
             self.robot_pose.pose.orientation.w = q_new[3]
-
+            
+    def handle_if_is_free_ask(self, req):
+        global_printer.print_green(f"Received service QUESTION /ask_if_robot_is_free_srv -> {self.robot_is_free}")
+        if self.robot_is_free:
+            return SetBoolResponse(success=True, message="Robot is free (got no command)")
+        else:
+            return SetBoolResponse(success=False, message="Robot is busy (got a command)")
+        
     def target_pose_callback(self, msg: PoseStamped):
         """ Xử lý dữ liệu Pose cho mục tiêu """
         if not self.got_first_target_event:
@@ -449,7 +462,7 @@ class RobotController:
         else:
             pass
 
-    def process_movement(self, exp_time_start, last_time):
+    def process_movement(self, last_time):
         # check if in active zone
         # if self.robot_pose is None or \
         if  self.robot_pose.pose.position.x < self.active_zone_x[0] or \
@@ -474,6 +487,7 @@ class RobotController:
             return None, None
         if self.robot_pose is None or self.target_pose is None:
             # rospy.logwarn("No pose message received.")
+            print("No pose message received.")
             return None, None
 
         # print('\n-----')
@@ -499,6 +513,7 @@ class RobotController:
         # self.send_udp_message(vx, vy, wz)
         self.publish_velocity(vx, vy, wz)
         global_printer.print_yellow(f'Command: [{vx:.6f}, {vy:.6f}] - error: {dis_xy:.6f}')
+        print(f'     GOAL: ', goal_pos)
 
         # print('check vx, vy: ', vx, vy)
 
@@ -525,21 +540,15 @@ class RobotController:
     
     def distance_p_p(self, p1, p2):
         return np.linalg.norm(np.array(p1) - np.array(p2))
-        
+           
     def run(self):
         rate = rospy.Rate(RATE)
-        exp_time_start = rospy.Time.now().to_sec()
-        
-        cmd_list = []
-        cmd_time_list = []
-
         while self.robot_pose is None:
             # sleep to wait for robot pose
             rate.sleep()
 
 
         last_time = rospy.Time.now().to_sec()
-        got_robot_start_pose = False
 
         global_printer.print_blue('===================================================', background=True)
         global_printer.print_blue('ARE YOU READY ? Press Enter to start the mission...', background=True)
@@ -557,49 +566,26 @@ class RobotController:
         total_move_time_list = []
 
         while not rospy.is_shutdown():
+            # A. early return
+
+            # A1. no target
             if not self.trigger_dummy_run and self.target_pose is None:
                 rate.sleep()
                 continue
-
-            if not informed_new_run:
-                global_printer.print_blue('===================================================', background=True)
-                global_printer.print_blue('                      NEW RUN START !', background=True)
-                global_printer.print_blue('===================================================', background=True)
-                informed_new_run = True
-
-            if DEBUG: self.global_printer.print_green(f"Control rate: {1 / (rospy.Time.now().to_sec() - exp_time_start):.2f}")
-
-            # detect first robot move
-            # if not done_get_first_move and self.distance_p_p([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y], [self.robot_init_pos[0], self.robot_init_pos[1]]) > 0.01:
-            if not done_get_first_move:
-                init_move_dist = self.distance_p_p([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y], [self.robot_init_pos[0], self.robot_init_pos[1]])
-                if init_move_dist > 0.01:
-                    self.first_move_time = rospy.Time.now().to_sec()
-                    done_get_first_move = True
-                    global_printer.print_blue(f"----------- EVENT: First move -----------", background=True)
-                else:
-                    print('waiting for first move... Now dist: ', init_move_dist)
-
-
-
-            # if DEBUG: self.receive_udp_robot_state()
-            vx, vy = self.process_movement(exp_time_start, last_time=last_time)
-            last_time = rospy.Time.now().to_sec()
             
-            # # just for debugging
-            # if vx is not None and vy is not None and self.target_pose is not None:
-            #     dis_xy = np.linalg.norm(np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y]) - np.array([self.target_pose.pose.position.x, self.target_pose.pose.position.y]))
-            #     if dis_xy <=1.0:
-            #         cmd_list.append(vx)
-            #         cmd_time_list.append(rospy.Time.now().to_sec())
-            #         if not got_robot_start_pose:
-            #             robot_pos_start_cons = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
-            #             time_start_cons = rospy.Time.now().to_sec()
-            #             got_robot_start_pose = True
+            # A2. Running time 
+            if self.trigger_time is not None and (rospy.Time.now().to_sec() - self.trigger_time > MAX_CONTROL_TIME):
+                self.mission_complete = True
+                print('============= STOP because taking too much time to reach goal =============')
+                send_robot_reached_goal_srv(False)
 
-            cmd_list.append(vx)
-            cmd_time_list.append(rospy.Time.now().to_sec())
+                # reset all variables
+                informed_new_run = False
+                done_get_first_move = False
+                self.reset_controller()
+                continue
 
+            # A3. self.mission_complete is activated
             if self.mission_complete:
                 print("\n-------- Mission Complete --------")
 
@@ -661,15 +647,36 @@ class RobotController:
                 print(f'Actual move time NO dummy MEAN: {np.mean(actual_move_time_NO_dummy_list):.6f} s')
                 print(f'Total move time MEAN: {np.mean(total_move_time_list):.6f} s')
 
-                send_robot_reached_goal_srv()
-
                 print('----------------------------------\n')
-                # self.shutdown_node()
-
                 # reset all variables
+                send_robot_reached_goal_srv(True)
                 informed_new_run = False
                 done_get_first_move = False
                 self.reset_controller()
+                continue
+
+            
+            # B. Got a command and process
+            if not informed_new_run:
+                global_printer.print_blue('===================================================', background=True)
+                global_printer.print_blue('                      NEW RUN START !', background=True)
+                global_printer.print_blue('===================================================', background=True)
+                informed_new_run = True
+
+            # detect first robot move
+            # if not done_get_first_move and self.distance_p_p([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y], [self.robot_init_pos[0], self.robot_init_pos[1]]) > 0.01:
+            if not done_get_first_move:
+                init_move_dist = self.distance_p_p([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y], [self.robot_init_pos[0], self.robot_init_pos[1]])
+                if init_move_dist > 0.01:
+                    self.first_move_time = rospy.Time.now().to_sec()
+                    done_get_first_move = True
+                    global_printer.print_blue(f"----------- EVENT: First move -----------", background=True)
+                else:
+                    print('waiting for first move... Now dist: ', init_move_dist)
+
+            # if DEBUG: self.receive_udp_robot_state()
+            vx, vy = self.process_movement(last_time=last_time)
+            last_time = rospy.Time.now().to_sec()
 
             rate.sleep()
 
