@@ -613,41 +613,41 @@ class RobotController:
                 print(f'    Real avg vel: {dis_run / (time_run):.6f} m/s')
                 # print(f'    Command avg velocity: {self.cal_avg_vel(cmd_list, cmd_time_list):.2f} m/s')
 
-                print('TIME:')
-                global_printer.print_green(f'    Time run: {time_run:.6f} s')
-                # we consider self.trigger_time as origin time
-                self.first_goal_get_time = self.first_goal_get_time - self.trigger_time
-                self.first_move_time = self.first_move_time - self.trigger_time
-                reach_goal_time = reach_goal_time - self.trigger_time
+                # print('TIME:')
+                # global_printer.print_green(f'    Time run: {time_run:.6f} s')
+                # # we consider self.trigger_time as origin time
+                # self.first_goal_get_time = self.first_goal_get_time - self.trigger_time
+                # self.first_move_time = self.first_move_time - self.trigger_time
+                # reach_goal_time = reach_goal_time - self.trigger_time
 
-                # print(f'    trigger time        : {(self.trigger_time - self.trigger_time):.6f} s')
+                # # print(f'    trigger time        : {(self.trigger_time - self.trigger_time):.6f} s')
 
-                warm_up_time = self.first_move_time
-                print(f'    first move time     : {(warm_up_time):.6f} s')
-                print(f'    first goal get time : {(self.first_goal_get_time):.6f} s')
+                # warm_up_time = self.first_move_time
+                # print(f'    first move time     : {(warm_up_time):.6f} s')
+                # print(f'    first goal get time : {(self.first_goal_get_time):.6f} s')
 
-                actual_move_time            = reach_goal_time - self.first_move_time
-                print(f'    actual move time    : {(actual_move_time):.6f} s')
+                # actual_move_time            = reach_goal_time - self.first_move_time
+                # print(f'    actual move time    : {(actual_move_time):.6f} s')
 
-                actual_move_time_no_dummy   = reach_goal_time - self.first_goal_get_time
-                print(f'    actual move time NO dummy    : {(actual_move_time_no_dummy):.6f} s')
+                # actual_move_time_no_dummy   = reach_goal_time - self.first_goal_get_time
+                # print(f'    actual move time NO dummy    : {(actual_move_time_no_dummy):.6f} s')
 
-                total_reach_time = reach_goal_time
-                print(f'    goal reach time     : {(total_reach_time):.6f} s')
+                # total_reach_time = reach_goal_time
+                # print(f'    goal reach time     : {(total_reach_time):.6f} s')
 
-                control_error_list.append(ctrl_error)
-                warm_up_time_list.append(warm_up_time)
-                actual_move_time_list.append(actual_move_time)
-                actual_move_time_NO_dummy_list.append(actual_move_time_no_dummy)
-                total_move_time_list.append(total_reach_time)
-                # cal mean
-                print(f'\nControl error MEAN: {np.mean(control_error_list):.6f} m')
-                print(f'Warm up time MEAN: {np.mean(warm_up_time_list):.6f} s')
-                print(f'Actual move time MEAN: {np.mean(actual_move_time_list):.6f} s')
-                print(f'Actual move time NO dummy MEAN: {np.mean(actual_move_time_NO_dummy_list):.6f} s')
-                print(f'Total move time MEAN: {np.mean(total_move_time_list):.6f} s')
+                # control_error_list.append(ctrl_error)
+                # warm_up_time_list.append(warm_up_time)
+                # actual_move_time_list.append(actual_move_time)
+                # actual_move_time_NO_dummy_list.append(actual_move_time_no_dummy)
+                # total_move_time_list.append(total_reach_time)
+                # # cal mean
+                # print(f'\nControl error MEAN: {np.mean(control_error_list):.6f} m')
+                # print(f'Warm up time MEAN: {np.mean(warm_up_time_list):.6f} s')
+                # print(f'Actual move time MEAN: {np.mean(actual_move_time_list):.6f} s')
+                # print(f'Actual move time NO dummy MEAN: {np.mean(actual_move_time_NO_dummy_list):.6f} s')
+                # print(f'Total move time MEAN: {np.mean(total_move_time_list):.6f} s')
 
-                print('----------------------------------\n')
+                # print('----------------------------------\n')
                 # reset all variables
                 send_robot_reached_goal_srv(True)
                 informed_new_run = False
