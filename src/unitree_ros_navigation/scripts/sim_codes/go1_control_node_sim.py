@@ -19,51 +19,41 @@ from std_msgs.msg import Float32
 global_printer = printer.Printer()
 
 HIGHLEVEL = 0xee
-RATE = 50  # Loop rate
-TRANS_THRES = 0.2  # Meters
-ROT_THRES = math.radians(30)  # 20 degrees in radians
-# ROBOT_TF_FRAME = "dog_frame"
-# TARGET_TF_FRAME = 'chip_star_frame' # 'chip_star_frame' 'pred_impact_point_frame'
-
-ROBOT_POSE_TOPIC = "unitree_go1/pose"
-TARGET_POSE_TOPIC = "NAE/impact_point"  # NAE/impact_point  /mocap_pose_topic/chip_star_pose
-TRIGGER_DUMP_RUN_TOPIC = "/mocap_pose_topic/chip_star_pose"
-LIN_VEL_SCALING = 2.0
-ROT_VEL_SCALING = 2.0
-GAIT_TYPE = 2
-
-# PID_X = [2.5, 0.0, 0.1]
-# PID_Y = [1.5, 0.0, 0.1]
-# PID_THETA = [2.0, 0.0, 0.1]
-CTRL_TOLERANCE_XY = 0.05
-
-PID_X = [2.5, 0, 0]
-PID_Y = [2.0, 0, 0]
-PID_THETA = [2.0, 0.0, 0.1]
-
-VXRANGE = [-1.0, 2.0]
-VYRANGE = [-1.0, 1.0]
-WZRANGE = [-1.0, 1.0]
-
-DEADBAND_XYTH = (0.00, 0.00, 3*math.pi/180)
-
-MSG_TIMEOUT = 0.2
-# MODIFY_Z_UP = False
-MODIFY_Z_UP_GOAL = False
-MODIFY_Z_UP_ROBOT_POSE = False
-
 DEBUG = False
-DUMP_RUN_TIME = 1
-DUMP_RUN_VEL = 0.3
-
-ACTIVE_ZONE_X = [-10000, 10000]
-ACTIVE_ZONE_Y = [-10000, 10000]
-
-DUMMY_ZONE_X = [-2.5, 3.5]
-DUMMY_ZONE_Y = [-2.0, 0.5]
-
 NO_CONTROL = False
-MAX_CONTROL_TIME = 10 # seconds
+
+
+
+# load params from server
+RATE = rospy.get_param("high_level_controller/rate")
+GAIT_TYPE = rospy.get_param("high_level_controller/gait_type")
+ROBOT_POSE_TOPIC = rospy.get_param("robot_pose_topic")
+TARGET_POSE_TOPIC = rospy.get_param("predicted_impact_point_topic")
+TRIGGER_DUMMY_RUN_TOPIC = rospy.get_param("trigger_dummy_run_topic")
+CTRL_TOLERANCE_XY = rospy.get_param("high_level_controller/control_tolerance_xy")
+
+PID_X = rospy.get_param("high_level_controller/pid_x")
+PID_Y = rospy.get_param("high_level_controller/pid_y")
+PID_THETA = rospy.get_param("high_level_controller/pid_theta")
+DEADBAND_XYTH = rospy.get_param("high_level_controller/deadband_xytheta")
+
+VXRANGE = rospy.get_param("high_level_controller/vx_range")
+VYRANGE = rospy.get_param("high_level_controller/vy_range")
+WZRANGE = rospy.get_param("high_level_controller/wz_range")
+
+MODIFY_Z_UP_GOAL = rospy.get_param("high_level_controller/modify_z_up_goal")
+MODIFY_Z_UP_ROBOT_POSE = rospy.get_param("high_level_controller/modify_z_up_robot_pose")
+
+DUMMY_RUN_TIME = rospy.get_param("high_level_controller/dummy_run_time")
+DUMMY_RUN_VEL = rospy.get_param("high_level_controller/dummy_run_vel")
+
+ACTIVE_ZONE_X = rospy.get_param("high_level_controller/active_zone_x")
+ACTIVE_ZONE_Y = rospy.get_param("high_level_controller/active_zone_y")
+
+DUMMY_ZONE_X = rospy.get_param("high_level_controller/dummy_zone_x")
+DUMMY_ZONE_Y = rospy.get_param("high_level_controller/dummy_zone_y")
+
+MAX_CONTROL_TIME = rospy.get_param("high_level_controller/max_control_time")
 
 def shutdown_node():
     rospy.loginfo("FORCE Shutting down the node...")
@@ -184,14 +174,6 @@ class PIDController:
         wz = (self.Kp_theta * error_theta) + (self.Ki_theta * self.integral_theta) + (self.Kd_theta * derivative_theta)
 
         # ===== Giới hạn vận tốc =====
-        # vx = vx**LIN_VEL_SCALING
-        # vy = vy**LIN_VEL_SCALING
-        # wz = wz**ROT_VEL_SCALING
-
-
-        # vx = vx * scaling_function(error_x)
-        # vy = vy * scaling_function(error_y)
-
         vx = max(min(vx, self.vx_range[1]), self.vx_range[0])
         vy = max(min(vy, self.vy_range[1]), self.vy_range[0])
         wz = max(min(wz, self.wz_range[1]), self.wz_range[0])
@@ -248,7 +230,7 @@ class RobotController:
 
         rospy.Subscriber(ROBOT_POSE_TOPIC, Odometry, self.robot_pose_callback)
 
-        rospy.Subscriber(TRIGGER_DUMP_RUN_TOPIC, PoseStamped, self.trigger_pose_callback, queue_size=10)
+        rospy.Subscriber(TRIGGER_DUMMY_RUN_TOPIC, PoseStamped, self.trigger_pose_callback, queue_size=10)
         rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
 
         self.velocity_pub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
@@ -385,7 +367,7 @@ class RobotController:
                 self.trigger_dummy_run = True
                 self.robot_init_pos = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
 
-                self.dummy_run(self.trigger_time, DUMP_RUN_TIME, DUMP_RUN_VEL)
+                self.dummy_run(self.trigger_time, DUMMY_RUN_TIME, DUMMY_RUN_VEL)
                 print('TRIGGER POS: ', object_pose_x, object_pose_y, object_pose_z)
 
                 if object_pose_x - self.dummy_run_trigger_zone_x[0] > 0.2:
@@ -478,7 +460,7 @@ class RobotController:
             return None, None
 
         if self.target_pose is None and self.trigger_dummy_run==True:
-            self.dummy_run(self.trigger_time, DUMP_RUN_TIME, DUMP_RUN_VEL)
+            self.dummy_run(self.trigger_time, DUMMY_RUN_TIME, DUMMY_RUN_VEL)
             # self.target_pose = PoseStamped()
             # self.target_pose.pose.position.x = 2.0
             # self.target_pose.pose.position.y = -1.0
