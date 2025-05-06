@@ -119,71 +119,18 @@ class PIDController:
         self.prev_error_y = 0.0
         self.prev_error_theta = 0.0
 
-    def calculate(self, current_pos, goal_pos, current_quat, dt):
-        # Vị trí hiện tại và vị trí đích
-        x_r, y_r = current_pos
-        x_g, y_g = goal_pos
-
-        # Chuyển quaternion của robot sang yaw (hướng robot)
-        theta_r = self.quaternion_to_yaw(current_quat)
-
-        # ===== Chuyển đổi từ absolute → relative coordinates =====
-        delta_x = x_g - x_r
-        delta_y = y_g - y_r
-
-        # Sai số vị trí trong hệ tọa độ của robot
-        error_x = math.cos(theta_r) * delta_x + math.sin(theta_r) * delta_y
-        error_y = -math.sin(theta_r) * delta_x + math.cos(theta_r) * delta_y
-
-        # Sai số góc (robot hướng về mục tiêu)
-        error_theta = self.normalize_angle(math.atan2(delta_y, delta_x) - theta_r)
-
-        # ===== Deadband để bỏ qua sai số nhỏ =====
-        if abs(error_y) < self.deadband_y:
-            error_y = 0.0
-        if abs(error_x) < self.deadband_x:
-            error_x = 0.0
-
-        dis_xy = math.sqrt(error_x**2 + error_y**2)
-        if abs(error_theta) < self.deadband_theta or dis_xy<0.3:  # Deadband cho sai số góc (2 độ)
-            error_theta = 0.0
-
-        # ===== PID cho trục Y =====
-        self.integral_y += error_y * dt
-        self.integral_y = max(min(self.integral_y, self.integral_limit), -self.integral_limit)
-        derivative_y = (error_y - self.prev_error_y) / dt if dt > 0 else 0.0
-        vy = (self.Kp_y * error_y) + (self.Ki_y * self.integral_y) + (self.Kd_y * derivative_y)
-
-        # ===== PID cho trục X (có thể bật/tắt boost) =====
-        self.integral_x += error_x * dt
-        self.integral_x = max(min(self.integral_x, self.integral_limit), -self.integral_limit)
-        derivative_x = (error_x - self.prev_error_x) / dt if dt > 0 else 0.0
-
-        # Bật/tắt tăng cường điều khiển X khi Y ổn định
-        if self.boost_x_enabled:
-            Kp_x_boost = self.Kp_x * 1.5 if abs(error_y) < 0.05 else self.Kp_x
-        else:
-            Kp_x_boost = self.Kp_x
-
-        vx = (Kp_x_boost * error_x) + (self.Ki_x * self.integral_x) + (self.Kd_x * derivative_x)
-
-        # ===== PID cho góc quay (Theta) =====
-        self.integral_theta += error_theta * dt
-        self.integral_theta = max(min(self.integral_theta, self.integral_limit), -self.integral_limit)
-        derivative_theta = (error_theta - self.prev_error_theta) / dt if dt > 0 else 0.0
-        wz = (self.Kp_theta * error_theta) + (self.Ki_theta * self.integral_theta) + (self.Kd_theta * derivative_theta)
-
-        # ===== Giới hạn vận tốc =====
-        vx = max(min(vx, self.vx_range[1]), self.vx_range[0])
-        vy = max(min(vy, self.vy_range[1]), self.vy_range[0])
-        wz = max(min(wz, self.wz_range[1]), self.wz_range[0])
-
-        # Cập nhật sai số trước đó
-        self.prev_error_x = error_x
-        self.prev_error_y = error_y
-        self.prev_error_theta = error_theta
-
-        return vx, vy, wz
+    def calculate(self, current_pos_xy, goal_pos_xyt, xyt_0):
+        t_now = rospy.Time.now().to_sec()
+        t_goal = goal_pos_xyt[2]
+        if (t_now - t_goal) > 0.1:
+            return 0.0, 0.0
+        
+        if (t_now - xyt_0[2]) <= 0.001:
+            return self.vx_range[1], self.vy_range[1]
+        
+        ratio = (t_now - xyt_0[2]) / (t_goal - xyt_0[2])
+        x_desired = xyt_0[0] + (goal_pos_xyt[0] - xyt_0[0]) * ratio
+        y_desired = xyt_0[1] + (goal_pos_xyt[1] - xyt_0[1]) * ratio
 
     def reset(self):
         self.integral_x = 0.0
@@ -238,13 +185,7 @@ class RobotController:
         self.new_target_pose_pub = rospy.Publisher("/check/target_pose", PoseStamped, queue_size=10)
 
 
-        # self.pid = PIDController(Kp=KP, Ki=KI, Kd=KD, vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0))
-        # self.pid = PIDController(Kp_x=1.0, Ki_x=0.0, Kd_x=0.1, 
-        #                         Kp_y=1.5, Ki_y=0.0, Kd_y=0.1,
-        #                         Kp_theta=2.0, Ki_theta=0.0, Kd_theta=0.1,
-        #                         vx_range=(-2.3, 3.3), vy_range=(-1.0, 1.0), wz_range=(-2, 2),
-        #                         integral_limit=1.0, deadband=0.01)
-        self.pid = PIDController(Kp_x=PID_X[0], Ki_x=PID_X[1], Kd_x=PID_X[2],
+        self.controller_core = PIDController(Kp_x=PID_X[0], Ki_x=PID_X[1], Kd_x=PID_X[2],
                                 Kp_y=PID_Y[0], Ki_y=PID_Y[1], Kd_y=PID_Y[2],
                                 Kp_theta=PID_THETA[0], Ki_theta=PID_THETA[1], Kd_theta=PID_THETA[2],
                                 vx_range=VXRANGE, vy_range=VYRANGE, wz_range=WZRANGE,
@@ -264,7 +205,7 @@ class RobotController:
 
     def reset_controller(self):
         self.publish_velocity(0.0, 0.0, 0.0)
-        self.pid.reset()
+        self.controller_core.reset()
         
         self.trigger_dummy_run = False
         self.trigger_time = None
@@ -488,7 +429,10 @@ class RobotController:
             return None, None
 
         # print(f'real hz = {1/(rospy.Time.now().to_sec() - last_time):.3f}')
-        vx, vy, wz = self.pid.calculate(robot_pos, goal_pos, robot_quat, delta_t)
+        vx, vy, wz = self.controller_core.calculate(robot_pos, goal_pos, goal_time)
+
+
+
         # print('forward_velocity: ', forward_velocity)
         # print(f'    vx: {vx}, vy: {vy}, wz: {wz*180/np.pi:.3f}')
         wz = 0
