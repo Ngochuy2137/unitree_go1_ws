@@ -261,6 +261,7 @@ class RobotController:
         self.reset_controller()
 
         rospy.Service('/ask_if_robot_is_free_srv', SetBool, self.handle_if_is_free_ask)
+        rospy.Service('/stop_robot_srv', SetBool, self.handle_stop_robot_srv)
 
     def reset_controller(self):
         self.publish_velocity(0.0, 0.0, 0.0)
@@ -313,6 +314,12 @@ class RobotController:
             return SetBoolResponse(success=True, message="Robot is free (got no command)")
         else:
             return SetBoolResponse(success=False, message="Robot is busy (got a command)")
+    
+    def handle_stop_robot_srv(self, req):
+        global_printer.print_green(f"Received service REQUEST /stop_robot_srv -> {req.data}")
+        self.mission_complete = True
+        self.reset_controller()
+        return SetBoolResponse(success=True, message="Robot is stopped")
         
     def target_pose_callback(self, msg: PoseStamped):
         """ Xử lý dữ liệu Pose cho mục tiêu """
@@ -494,8 +501,8 @@ class RobotController:
         wz = 0
         # self.send_udp_message(vx, vy, wz)
         self.publish_velocity(vx, vy, wz)
-        global_printer.print_yellow(f'Command: [{vx:.6f}, {vy:.6f}] - error: {dis_xy:.6f}')
-        print(f'     GOAL: ', goal_pos)
+        # global_printer.print_yellow(f'Command: [{vx:.6f}, {vy:.6f}] - error: {dis_xy:.6f}')
+        # print(f'     GOAL: ', goal_pos)
 
         # print('check vx, vy: ', vx, vy)
 
