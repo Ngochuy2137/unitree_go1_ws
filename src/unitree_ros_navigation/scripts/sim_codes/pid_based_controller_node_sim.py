@@ -7,6 +7,7 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
 from gazebo_msgs.msg import ModelStates
 from nav_msgs.msg import Odometry
+from rocat_sim.src.utils.utils import warn_beep, beep
 
 # sys.path.append('/home/huynn/huynn_ws/robot_catching_ws/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/arm64')
 # import robot_interface as sdk
@@ -151,7 +152,7 @@ class PIDController:
         # ===== PID cho trục Y =====
         self.integral_y += error_y * dt
         self.integral_y = max(min(self.integral_y, self.integral_limit), -self.integral_limit)
-        derivative_y = (error_y - self.prev_error_y) / dt if dt > 0 else 0.0
+        derivative_y = (error_y - self.prev_error_y) / dt if dt > 0.001 else 0.0
         vy = (self.Kp_y * error_y) + (self.Ki_y * self.integral_y) + (self.Kd_y * derivative_y)
 
         # ===== PID cho trục X (có thể bật/tắt boost) =====
@@ -281,6 +282,7 @@ class RobotController:
 
         self.mission_complete = False
         self.robot_is_free = True
+        # self.stop_robot_order = False
 
     def robot_pose_callback(self, msg: Odometry):
         """ Xử lý dữ liệu Pose cho robot """
@@ -318,7 +320,8 @@ class RobotController:
     def handle_stop_robot_srv(self, req):
         global_printer.print_green(f"Received service REQUEST /stop_robot_srv -> {req.data}")
         self.mission_complete = True
-        self.reset_controller()
+        beep(duration=0.1, freq=750)
+        # self.stop_robot_order = True
         return SetBoolResponse(success=True, message="Robot is stopped")
         
     def target_pose_callback(self, msg: PoseStamped):
@@ -453,7 +456,12 @@ class RobotController:
 
     def process_movement(self, last_time):
         # check if in active zone
-        # if self.robot_pose is None or \
+        # if self.stop_robot_order:
+        #     self.mission_complete = True
+        #     print('============= STOP because of stop order =============')
+        #     self.publish_velocity(0.0, 0.0, 0.0)
+        #     return None, None
+        
         if  self.robot_pose.pose.position.x < self.active_zone_x[0] or \
             self.robot_pose.pose.position.x > self.active_zone_x[1] or \
             self.robot_pose.pose.position.y < self.active_zone_y[0] or \
@@ -537,8 +545,6 @@ class RobotController:
             rate.sleep()
 
 
-        last_time = rospy.Time.now().to_sec()
-
         global_printer.print_blue('===================================================', background=True)
         global_printer.print_blue('ARE YOU READY ? Press Enter to start the mission...', background=True)
         global_printer.print_blue('===================================================', background=True); input(); input()
@@ -547,12 +553,6 @@ class RobotController:
 
         informed_new_run = False
         done_get_first_move = False
-
-        control_error_list = []
-        warm_up_time_list = []
-        actual_move_time_list = []
-        actual_move_time_NO_dummy_list = []
-        total_move_time_list = []
 
         while not rospy.is_shutdown():
             # A. early return
@@ -600,43 +600,6 @@ class RobotController:
                 print(f'    Control error: {ctrl_error}')
                 global_printer.print_green(f'    Dis run: {dis_run}')
                 print(f'    Real avg vel: {dis_run / (time_run):.6f} m/s')
-                # print(f'    Command avg velocity: {self.cal_avg_vel(cmd_list, cmd_time_list):.2f} m/s')
-
-                # print('TIME:')
-                # global_printer.print_green(f'    Time run: {time_run:.6f} s')
-                # # we consider self.trigger_time as origin time
-                # self.first_goal_get_time = self.first_goal_get_time - self.trigger_time
-                # self.first_move_time = self.first_move_time - self.trigger_time
-                # reach_goal_time = reach_goal_time - self.trigger_time
-
-                # # print(f'    trigger time        : {(self.trigger_time - self.trigger_time):.6f} s')
-
-                # warm_up_time = self.first_move_time
-                # print(f'    first move time     : {(warm_up_time):.6f} s')
-                # print(f'    first goal get time : {(self.first_goal_get_time):.6f} s')
-
-                # actual_move_time            = reach_goal_time - self.first_move_time
-                # print(f'    actual move time    : {(actual_move_time):.6f} s')
-
-                # actual_move_time_no_dummy   = reach_goal_time - self.first_goal_get_time
-                # print(f'    actual move time NO dummy    : {(actual_move_time_no_dummy):.6f} s')
-
-                # total_reach_time = reach_goal_time
-                # print(f'    goal reach time     : {(total_reach_time):.6f} s')
-
-                # control_error_list.append(ctrl_error)
-                # warm_up_time_list.append(warm_up_time)
-                # actual_move_time_list.append(actual_move_time)
-                # actual_move_time_NO_dummy_list.append(actual_move_time_no_dummy)
-                # total_move_time_list.append(total_reach_time)
-                # # cal mean
-                # print(f'\nControl error MEAN: {np.mean(control_error_list):.6f} m')
-                # print(f'Warm up time MEAN: {np.mean(warm_up_time_list):.6f} s')
-                # print(f'Actual move time MEAN: {np.mean(actual_move_time_list):.6f} s')
-                # print(f'Actual move time NO dummy MEAN: {np.mean(actual_move_time_NO_dummy_list):.6f} s')
-                # print(f'Total move time MEAN: {np.mean(total_move_time_list):.6f} s')
-
-                # print('----------------------------------\n')
                 # reset all variables
                 send_robot_reached_goal_srv(True)
                 informed_new_run = False
@@ -650,6 +613,8 @@ class RobotController:
                 global_printer.print_blue('===================================================', background=True)
                 global_printer.print_blue('                      NEW RUN START !', background=True)
                 global_printer.print_blue('===================================================', background=True)
+                wait_first_move_count = 0
+                last_time = rospy.Time.now().to_sec()
                 informed_new_run = True
 
             # detect first robot move
@@ -660,8 +625,13 @@ class RobotController:
                     self.first_move_time = rospy.Time.now().to_sec()
                     done_get_first_move = True
                     global_printer.print_blue(f"----------- EVENT: First move -----------", background=True)
+                    wait_first_move_count = 0
                 else:
                     print('waiting for first move... Now dist: ', init_move_dist)
+                    wait_first_move_count += 1
+                    if wait_first_move_count > 10:
+                        warn_beep(5)
+                        shutdown_node()
 
             # if DEBUG: self.receive_udp_robot_state()
             vx, vy = self.process_movement(last_time=last_time)
