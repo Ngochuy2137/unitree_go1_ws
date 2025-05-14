@@ -1,7 +1,5 @@
 # Unitree_go1_ws
-**This repo is for unitree go1 robot bringup**
-
-**Objective:** Packages to simulate Unitree Go1 in Gazebo and control the robot with keyboard based on ROS
+**This repo includes packages for Unitree Go1 bringup and implementation of high level control in simulation and real robot**
 
 ## Table of Contents
 - [1. Prerequisite](#1-prerequisite)
