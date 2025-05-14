@@ -261,8 +261,8 @@ class RobotController:
         self.robot_pose = None
         self.reset_controller()
 
-        rospy.Service('/ask_if_robot_is_free_srv', SetBool, self.handle_if_is_free_ask)
-        rospy.Service('/stop_robot_srv', SetBool, self.handle_stop_robot_srv)
+        rospy.Service('/ask_if_robot_is_ready_srv', SetBool, self.handle_if_is_free_ask)
+        rospy.Service('/stop_control_session_srv', SetBool, self.handle_stop_control_session_srv)
 
     def reset_controller(self):
         self.publish_velocity(0.0, 0.0, 0.0)
@@ -311,14 +311,14 @@ class RobotController:
             self.robot_pose.pose.orientation.w = q_new[3]
             
     def handle_if_is_free_ask(self, req):
-        global_printer.print_green(f"Received service QUESTION /ask_if_robot_is_free_srv -> {self.robot_is_free}")
+        global_printer.print_green(f"Received service QUESTION /ask_if_robot_is_ready_srv -> {self.robot_is_free}")
         if self.robot_is_free:
             return SetBoolResponse(success=True, message="Robot is free (got no command)")
         else:
             return SetBoolResponse(success=False, message="Robot is busy (got a command)")
     
-    def handle_stop_robot_srv(self, req):
-        global_printer.print_green(f"Received service REQUEST /stop_robot_srv -> {req.data}")
+    def handle_stop_control_session_srv(self, req):
+        global_printer.print_green(f"Received service REQUEST /stop_control_session_srv -> {req.data}")
         self.mission_complete = True
         beep(duration=0.1, freq=750)
         # self.stop_robot_order = True
