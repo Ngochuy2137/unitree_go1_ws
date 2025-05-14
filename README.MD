@@ -54,7 +54,7 @@
     
     ```jsx
     sudo apt install liblcm-dev
-    pip install empy==4.2
+    pip install empy==3.3.4
     ```
     
 
