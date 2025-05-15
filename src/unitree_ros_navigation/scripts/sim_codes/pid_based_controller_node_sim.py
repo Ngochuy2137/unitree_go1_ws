@@ -9,8 +9,6 @@ from gazebo_msgs.msg import ModelStates
 from nav_msgs.msg import Odometry
 from rocat_sim.src.utils.utils import warn_beep, beep
 
-# sys.path.append('/home/huynn/huynn_ws/robot_catching_ws/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/arm64')
-# import robot_interface as sdk
 from python_utils import printer
 import copy
 import tf.transformations as tf_trans
@@ -221,7 +219,15 @@ class PIDController:
 class RobotController:
     def __init__(self, robot_ip="192.168.123.161"):
         rospy.init_node('robot_pid_high_level_controller', anonymous=True)
-        self.global_printer = printer.Printer()
+        self.using_real_robot = rospy.get_param("using_real_robot")
+        if self.using_real_robot:
+            sys.path.append('/home/huynn/huynn_ws/robot_catching_ws/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64')
+            import robot_interface as sdk
+            self.robot_ip = rospy.get_param("robot_ip")
+            self.udp = sdk.UDP(HIGHLEVEL, 8080, self.robot_ip, 8082)
+            self.cmd = sdk.HighCmd()
+            self.udp.InitCmdData(self.cmd)
+
         # self.tf_listener = tf.TransformListener()
         self.mission_complete = False
         self.robot_ip = robot_ip
@@ -384,11 +390,22 @@ class RobotController:
                     global_printer.print_red('Trigger moment is too late, becareful !')
 
 
-    def shutdown_node(self):
-        rospy.loginfo("Shutting down the node...")
-        rospy.signal_shutdown("User requested shutdown")
+    def send_udp_message(self, vx, vy, wz):
+        if NO_CONTROL:
+            return
+        # print(f"Sending UDP: {forward_velocity}, {angular_velocity}")
+        self.cmd.mode = 2
+        self.cmd.gaitType = GAIT_TYPE
+        self.cmd.velocity = [vx, vy]
+        self.cmd.yawSpeed = wz
+        self.cmd.footRaiseHeight = 0.08
+        self.cmd.bodyHeight = 0.0
+        self.udp.SetSend(self.cmd)
+        self.udp.Send()
 
     def publish_velocity(self, vx, vy, wz):
+        if self.using_real_robot:
+            self.send_udp_message(vx, vy, wz)
         vel_msg = Twist()
         vel_msg.linear.x = vx
         vel_msg.linear.y = vy
@@ -402,43 +419,6 @@ class RobotController:
         quaternion = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
         _, _, yaw = euler_from_quaternion(quaternion)  # Lấy yaw
         return yaw
-
-    # def send_udp_message(self, vx, vy, wz):
-    #     if NO_CONTROL:
-    #         return
-    #     # print(f"Sending UDP: {forward_velocity}, {angular_velocity}")
-    #     self.cmd.mode = 2
-    #     self.cmd.gaitType = GAIT_TYPE
-    #     self.cmd.velocity = [vx, vy]
-    #     self.cmd.yawSpeed = wz
-    #     self.cmd.footRaiseHeight = 0.08
-    #     self.cmd.bodyHeight = 0.0
-    #     self.udp.SetSend(self.cmd)
-    #     self.udp.Send()
-
-    # def receive_udp_robot_state(self):
-    #     state = sdk.LowState()
-    #     self.udp.GetRecv(state)
-    #     d = {'FR_0':0, 'FR_1':1, 'FR_2':2,
-    #      'FL_0':3, 'FL_1':4, 'FL_2':5, 
-    #      'RR_0':6, 'RR_1':7, 'RR_2':8, 
-    #      'RL_0':9, 'RL_1':10, 'RL_2':11 }
-    #     if state:
-    #         a = state.motorState[d['FR_0']].q
-    #         print(f"Robot State: {a}")
-    #     else:
-    #         print("No response from robot!")
-
-    # def lay_down_robot(self):
-    #     rospy.loginfo("Laying down the robot...")
-    #     self.cmd.mode = 5
-    #     self.cmd.gaitType = 0
-    #     self.cmd.velocity = [0.0, 0.0]
-    #     self.cmd.yawSpeed = 0.0
-    #     self.cmd.footRaiseHeight = 0.0
-    #     self.cmd.bodyHeight = -0.2
-    #     self.udp.SetSend(self.cmd)
-    #     self.udp.Send()
 
     def dummy_run(self, time_start, time_run, vel_max):
         delta_t = rospy.Time.now().to_sec() - time_start
@@ -512,7 +492,7 @@ class RobotController:
         # global_printer.print_yellow(f'Command: [{vx:.6f}, {vy:.6f}] - error: {dis_xy:.6f}')
         # print(f'     GOAL: ', goal_pos)
 
-        # print('check vx, vy: ', vx, vy)
+        print('check vx, vy: ', vx, vy)
 
         # return just for debugging
         return vx, vy
