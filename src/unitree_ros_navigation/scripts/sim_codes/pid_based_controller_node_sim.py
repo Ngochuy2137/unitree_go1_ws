@@ -28,8 +28,8 @@ NO_CONTROL = False
 # load params from server
 RATE = rospy.get_param("high_level_controller/rate")
 GAIT_TYPE = rospy.get_param("high_level_controller/gait_type")
-ROBOT_POSE_TOPIC = rospy.get_param("robot_pose_topic")
-TARGET_POSE_TOPIC = rospy.get_param("predicted_impact_point_topic")
+ROBOT_POSE_Z_UP_TOPIC = rospy.get_param("robot_pose_z_up_topic")
+TARGET_POSE_Z_UP_TOPIC = rospy.get_param("predicted_impact_point_z_up_topic")
 TRIGGER_DUMMY_RUN_TOPIC = rospy.get_param("trigger_dummy_run_topic")
 CTRL_TOLERANCE_XY = rospy.get_param("high_level_controller/control_tolerance_xy")
 
@@ -229,10 +229,10 @@ class RobotController:
         # self.cmd = sdk.HighCmd()
         # self.udp.InitCmdData(self.cmd)
 
-        rospy.Subscriber(ROBOT_POSE_TOPIC, Odometry, self.robot_pose_callback)
+        rospy.Subscriber(ROBOT_POSE_Z_UP_TOPIC, Odometry, self.robot_pose_callback)
 
         rospy.Subscriber(TRIGGER_DUMMY_RUN_TOPIC, PoseStamped, self.trigger_pose_callback, queue_size=10)
-        rospy.Subscriber(TARGET_POSE_TOPIC, PoseStamped, self.target_pose_callback)
+        rospy.Subscriber(TARGET_POSE_Z_UP_TOPIC, PoseStamped, self.target_pose_callback)
 
         self.velocity_pub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
         self.new_robot_pose_pub = rospy.Publisher("/check/robot_pose", PoseStamped, queue_size=10)
