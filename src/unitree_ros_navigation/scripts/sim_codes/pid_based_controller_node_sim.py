@@ -629,7 +629,7 @@ class RobotController:
                 else:
                     print('waiting for first move... Now dist: ', init_move_dist)
                     wait_first_move_count += 1
-                    if wait_first_move_count > 10:
+                    if wait_first_move_count > 20:
                         warn_beep(5)
                         shutdown_node()
 
