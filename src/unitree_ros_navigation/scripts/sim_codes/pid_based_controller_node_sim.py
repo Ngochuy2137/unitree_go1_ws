@@ -221,7 +221,7 @@ class RobotController:
         rospy.init_node('robot_pid_high_level_controller', anonymous=True)
         self.using_real_robot = rospy.get_param("using_real_robot")
         if self.using_real_robot:
-            sys.path.append('/home/huynn/huynn_ws/robot_catching_ws/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64')
+            sys.path.append('/home/server-huynn/workspace/robot_catching_project/experiment/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64')
             import robot_interface as sdk
             self.robot_ip = rospy.get_param("robot_ip")
             self.udp = sdk.UDP(HIGHLEVEL, 8080, self.robot_ip, 8082)
