@@ -523,10 +523,10 @@ class RobotController:
         return np.linalg.norm(np.array(p1) - np.array(p2))
            
     def run(self):
-        rate = rospy.Rate(RATE)
-        while self.robot_pose is None:
+        while not rospy.is_shutdown() and self.robot_pose is None:
             # sleep to wait for robot pose
-            rate.sleep()
+            print('Waiting for robot pose from topic: ', ROBOT_POSE_Z_UP_TOPIC)
+        print('Robot pose received !')
 
 
         global_printer.print_blue('===================================================', background=True)
@@ -538,6 +538,7 @@ class RobotController:
         informed_new_run = False
         done_get_first_move = False
 
+        rate = rospy.Rate(RATE)
         while not rospy.is_shutdown():
             # A. early return
 
