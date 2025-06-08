@@ -489,10 +489,10 @@ class RobotController:
         wz = 0
         # self.send_udp_message(vx, vy, wz)
         self.publish_velocity(vx, vy, wz)
-        # global_printer.print_yellow(f'Command: [{vx:.6f}, {vy:.6f}] - error: {dis_xy:.6f}')
+        print(f'Command: [{vx:.6f}, {vy:.6f}] - error: {dis_xy:.6f}')
         # print(f'     GOAL: ', goal_pos)
 
-        print('check vx, vy: ', vx, vy)
+        # print('check vx, vy: ', vx, vy)
 
         # return just for debugging
         return vx, vy
