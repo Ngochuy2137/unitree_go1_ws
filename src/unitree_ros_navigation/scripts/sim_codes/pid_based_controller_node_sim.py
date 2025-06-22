@@ -7,7 +7,7 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
 from gazebo_msgs.msg import ModelStates
 from nav_msgs.msg import Odometry
-from rocat_sim.src.utils.utils import warn_beep, beep
+from python_utils.singer import warn_beep, beep
 
 from python_utils import printer
 import copy
@@ -335,9 +335,9 @@ class RobotController:
     def target_pose_callback(self, msg: PoseStamped):
         """ Xử lý dữ liệu Pose cho mục tiêu """
         if not self.got_first_target_event:
-            global_printer.print_blue(f"----------- EVENT: First goal get -----------", background=True)
-
             self.first_goal_get_time = rospy.Time.now().to_sec()
+            global_printer.print_blue(f"----------- EVENT: First goal get ----------- {self.first_goal_get_time-self.trigger_time}", background=True)
+
             self.first_goal_get_robot_pos = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
             self.got_first_target_event = True
 
@@ -377,10 +377,9 @@ class RobotController:
             object_pose_z = msg.pose.position.y
             if object_pose_x >= self.dummy_run_trigger_zone_x[0] and object_pose_x <= self.dummy_run_trigger_zone_x[1] and \
                 object_pose_y >= self.dummy_run_trigger_zone_y[0] and object_pose_y <= self.dummy_run_trigger_zone_y[1]:
-
-                global_printer.print_blue(f"----------- EVENT: Trigger -----------", background=True)
-
                 self.trigger_time = rospy.Time.now().to_sec()
+                global_printer.print_blue(f"----------- EVENT: Trigger ----------- {0}", background=True)
+
                 global_printer.print_green('Trigger dummy run, becareful !')
                 self.trigger_dummy_run = True
                 self.robot_init_pos = np.array([self.robot_pose.pose.position.x, self.robot_pose.pose.position.y, self.robot_pose.pose.position.z])
@@ -540,6 +539,7 @@ class RobotController:
         done_get_first_move = False
 
         rate = rospy.Rate(RATE)
+        count_run = 0
         while not rospy.is_shutdown():
             # A. early return
 
@@ -597,8 +597,9 @@ class RobotController:
             # B. Got a command and process
             if not informed_new_run:
                 global_printer.print_blue('===================================================', background=True)
-                global_printer.print_blue('                      NEW RUN START !', background=True)
+                global_printer.print_blue(f'                      NEW RUN START #{count_run}', background=True)
                 global_printer.print_blue('===================================================', background=True)
+                count_run += 1
                 wait_first_move_count = 0
                 last_time = rospy.Time.now().to_sec()
                 informed_new_run = True
@@ -610,14 +611,14 @@ class RobotController:
                 if init_move_dist > 0.01:
                     self.first_move_time = rospy.Time.now().to_sec()
                     done_get_first_move = True
-                    global_printer.print_blue(f"----------- EVENT: First move -----------", background=True)
+                    global_printer.print_blue(f"----------- EVENT: First move ----------- {self.first_move_time-self.trigger_time}", background=True)
                     wait_first_move_count = 0
                 else:
                     print('waiting for first move... Now dist: ', init_move_dist)
                     wait_first_move_count += 1
-                    if wait_first_move_count > 20:
+                    if wait_first_move_count > 100:
                         warn_beep(5)
-                        shutdown_node()
+                        # shutdown_node()
 
             # if DEBUG: self.receive_udp_robot_state()
             vx, vy = self.process_movement(last_time=last_time)
