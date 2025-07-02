@@ -607,9 +607,9 @@ class RobotController:
                     global_printer.print_blue(f"----------- EVENT: First move -----------", background=True)
                     wait_first_move_count = 0
                 else:
-                    print('waiting for first move... Now dist: ', init_move_dist)
+                    print(f'{wait_first_move_count} waiting for first move... Now dist: {init_move_dist}')
                     wait_first_move_count += 1
-                    if wait_first_move_count > 20:
+                    if wait_first_move_count > 50:
                         warn_beep(5)
                         shutdown_node()
 
