@@ -27,7 +27,7 @@ NO_CONTROL = False
 RATE = rospy.get_param("high_level_controller/rate")
 GAIT_TYPE = rospy.get_param("high_level_controller/gait_type")
 ROBOT_POSE_Z_UP_TOPIC = rospy.get_param("robot_pose_z_up_topic")
-TARGET_POSE_Z_UP_TOPIC = rospy.get_param("predicted_impact_point_z_up_topic")
+TARGET_POSE_Z_UP_TOPIC = rospy.get_param("predicted_impact_point_z_up_topic", "/move_base_simple/goal")
 TRIGGER_DUMMY_RUN_TOPIC = rospy.get_param("trigger_dummy_run_topic")
 CTRL_TOLERANCE_XY = rospy.get_param("high_level_controller/control_tolerance_xy")
 
@@ -223,7 +223,6 @@ class RobotController:
         self.no_cmd = rospy.get_param("~no_cmd", False)
         if self.using_real_robot:
             sys.path.append('/home/server-huynn/workspace/robot_catching_project/experiment/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64')
-            # sys.path.append('/home/huynn/huynn_ws/robot_catching_ws/unitree_go1_ws/src/unitree_ros/unitree_ros_to_real/unitree_legged_sdk/lib/python/amd64')
             import robot_interface as sdk
             self.robot_ip = rospy.get_param("robot_ip")
             self.udp = sdk.UDP(HIGHLEVEL, 8080, self.robot_ip, 8082)
